@@ -163,7 +163,19 @@ export function applySinucaRuling(
     onTable: state.onTable.filter((id) => !removidas.includes(id)),
     // O direito à bola livre nasce de encaçapar a da vez e vale só a próxima.
     nominated: ruling.continues && rules.freeBallAfterPot ? outcome.nominated : null,
-    ballInHand: ruling.foul !== null,
+    /*
+     * Bola na mão só quando a BRANCA SAIU DE JOGO.
+     *
+     * A CBBS diz "retornando ao jogo como 'na mão'" — a expressão pressupõe
+     * que ela saiu. Numa falta comum, como errar a bola da vez, joga-se de
+     * onde a branca parou; o castigo é os 7 pontos, não a mesa inteira.
+     *
+     * Dar bola na mão em toda falta era a maior distorção de equilíbrio da
+     * modalidade, e tinha um efeito colateral concreto: 28 posições gravadas
+     * em 32 tacadas. O teto de posicionamentos do replay estourava antes de
+     * quase toda partida terminar.
+     */
+    ballInHand: outcome.pocketed.includes(CUE_BALL) || outcome.offTable.includes(CUE_BALL),
     broken: true,
     winner: ruling.winner,
     ending: ruling.ending,

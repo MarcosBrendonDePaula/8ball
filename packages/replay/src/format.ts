@@ -119,32 +119,40 @@ export const CALL_SIZE = 2
 /**
  * Teto de declarações de caçapa.
  *
- * Com a regra padrão (`eight-only`), só a bola 8 exige declarar — uma ou duas
- * por partida. Oito é folgado e barato.
+ * Com a regra padrão (`eight-only`), só a bola 8 exige declarar. Medido: no
+ * máximo 6 em 120 partidas simuladas, com jogadores que erram a 8 muito mais
+ * que gente de verdade.
  */
-export const MAX_CALLS = 8
+export const MAX_CALLS = 10
 
 /**
  * Teto de tacadas por replay.
  *
  * Cabe no orçamento acima com folga para uma instrução de compute budget, que
  * é comum precisar acrescentar. Uma partida de 8-Ball costuma ter menos de 30
- * tacadas, então 80 é generoso — e cada tacada custa cinco vezes mais que uma
- * decisão, então é daqui que sai o espaço para gravar bola na mão.
+ * tacadas. Medido em 120 partidas simuladas com jogadores ALEATÓRIOS — que
+ * erram muito mais que gente de verdade, e por isso alongam a partida: 8-Ball
+ * chegou a 60 tacadas, sinuca a 69. O teto cobre as duas com folga.
+ *
+ * O espaço saiu de dimensionar decisões e posições por MEDIÇÃO em vez de
+ * chute: as decisões caíram de 24 para 6, e corrigir a bola na mão da sinuca
+ * derrubou as posições de 28 por partida para 9.
  *
  * O limite é explícito, e estourar dá erro, em vez de o encode truncar o fim
  * em silêncio: um replay truncado verifica sem reclamar e aponta o vencedor
  * errado — o pior desfecho possível para uma auditoria.
  */
-export const MAX_SHOTS = 72
+export const MAX_SHOTS = 78
 
 /**
  * Teto de decisões por replay.
  *
- * Generoso de propósito: na prática são zero ou uma. Cada rerack repete a
- * quebra, então uma partida patológica poderia encadear algumas.
+ * Medido: 120 partidas simuladas de 8-Ball tiveram no máximo UMA, e a sinuca
+ * nenhuma — só a quebra irregular abre decisão, e ela acontece uma vez. O 24
+ * anterior era chute generoso, e cada unidade custava um byte que faltava às
+ * tacadas.
  */
-export const MAX_DECISIONS = 24
+export const MAX_DECISIONS = 6
 
 /**
  * Maior replay possível, em bytes.

@@ -34,6 +34,9 @@ import {
 } from '@zinc-pool/chain-client'
 import { DEFAULT_CUE, ENGINE_VERSION } from '@zinc-pool/engine-physics'
 import {
+  MAX_CALLS,
+  MAX_DECISIONS,
+  MAX_PLACEMENTS,
   REPLAY_VERSION,
   decodeReplay,
   encodeAngle,
@@ -89,16 +92,16 @@ const replay: Replay = {
   shots,
   // Quebra irregular abre escolha ao adversário; sem ela a verificação para.
   // Zero é "aceitar a mesa", a opção conservadora.
-  decisions: Array.from({ length: 24 }, () => 0),
+  decisions: Array.from({ length: MAX_DECISIONS }, () => 0),
   // Bola na mão é entrada do jogador, como a tacada. Sem as posições, a
   // verificação PARA na primeira falta em vez de inventar um ponto — que é
   // exatamente o que o formato v4 passou a garantir.
-  placements: Array.from({ length: 45 }, (_, i) => ({
+  placements: Array.from({ length: MAX_PLACEMENTS }, (_, i) => ({
     x: 0.4 + ((i * 7) % 20) / 20,
     y: 0.2 + ((i * 3) % 12) / 20,
   })),
   // A WPA exige declarar a caçapa na bola 8; sem isso encaçapá-la é falta.
-  calls: Array.from({ length: 8 }, () => ({ ball: 8, pocket: 0 })),
+  calls: Array.from({ length: MAX_CALLS }, () => ({ ball: 8, pocket: 0 })),
 }
 
 const bytes = encodeReplay(replay)

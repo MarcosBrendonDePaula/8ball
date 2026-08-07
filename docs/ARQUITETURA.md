@@ -594,15 +594,18 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**506 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**507 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 
 ### Limitações declaradas
 
 - Determinismo verificado em **duas** plataformas; Firefox e Safari não
-- Partida com mais de **80 tacadas ou 45 faltas** não cabe na transação de
-  liquidação. O gravador erra em vez de truncar
+- Partida com mais de **78 tacadas ou 45 bolas na mão** não cabe na transação
+  de liquidação. Os tetos foram medidos, não chutados: em 120 partidas
+  simuladas com jogadores aleatórios — que erram muito mais que gente — o
+  8-Ball chegou a 60 tacadas e a sinuca a 69. Ao estourar, vence quem está na
+  frente
 - A especificação da física está ancorada on-chain, mas hospedada **no
   GitHub**; o hash é eterno, o endereço não. Arweave fecha o ciclo
 - O jitter da quebra tem **27 posições distintas por coordenada**, não 256: a

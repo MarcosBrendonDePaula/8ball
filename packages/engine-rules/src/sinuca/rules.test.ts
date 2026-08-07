@@ -172,10 +172,22 @@ describe('faltas', () => {
     ).toBe('no-rail-after-contact')
   })
 
-  test('falta passa a vez e dá bola na mão', () => {
+  test('falta passa a vez, mas não dá bola na mão sozinha', () => {
+    // A CBBS diz "retornando ao jogo como na mão" — a expressão pressupõe que
+    // a branca SAIU. Numa falta comum joga-se de onde ela parou; o castigo são
+    // os 7 pontos, não a mesa inteira.
     const { state } = playSinucaShot(mesa(), tacada({ firstContact: null }))
 
     expect(state.turn).toBe(1)
+    expect(state.ballInHand).toBe(false)
+  })
+
+  test('branca encaçapada dá bola na mão', () => {
+    const { state } = playSinucaShot(
+      mesa(),
+      tacada({ firstContact: 1, pocketed: [CUE_BALL] }),
+    )
+
     expect(state.ballInHand).toBe(true)
   })
 
