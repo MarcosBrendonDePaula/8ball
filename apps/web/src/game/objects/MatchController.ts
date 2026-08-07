@@ -50,6 +50,15 @@ import {
  */
 export type MatchPhase = 'aiming' | 'simulating' | 'finished'
 
+/**
+ * Marcador de "aplique sem conferir o hash".
+ *
+ * Usado só na reconstrução do histórico, em que o servidor manda tudo de uma
+ * vez e não há um hash por tacada. É uma string impossível de o motor produzir
+ * — o hash real tem 8 dígitos hexadecimais.
+ */
+const SEM_CONFERIR = '(reconstrução)'
+
 export class MatchController extends Entity {
   /** Estado físico da mesa. */
   table: TableState
@@ -231,6 +240,14 @@ export class MatchController extends Entity {
    * representar a partida e insistir só pioraria.
    */
   applyRemoteShot(by: 0 | 1, shot: EncodedShot, stateHash: string): void {
+    // Na reconstrução não há hash por tacada para conferir: o servidor manda o
+    // histórico inteiro de uma vez. A conferência volta na próxima tacada ao
+    // vivo, que é quando ela pode de fato acusar divergência.
+    if (stateHash === SEM_CONFERIR) {
+      this.#aplicarTacada(by, shot)
+      return
+    }
+
     if (this.net && by === this.net.you) {
       const nosso = hashState(this.table)
       if (nosso !== stateHash && this.phase !== 'simulating') {
@@ -239,6 +256,16 @@ export class MatchController extends Entity {
       return
     }
 
+    this.#aplicarTacada(by, shot)
+
+    const nosso = hashState(this.table)
+    if (nosso !== stateHash) {
+      this.desync = `mesa divergiu do servidor (${nosso} ≠ ${stateHash})`
+    }
+  }
+
+  /** Aplica uma tacada de fora e julga, sem animar. */
+  #aplicarTacada(by: 0 | 1, shot: EncodedShot): void {
     this.recorder.record(shot)
 
     // Roda de uma vez, sem animar: a tacada já aconteceu do outro lado, e
@@ -256,11 +283,40 @@ export class MatchController extends Entity {
 
     this.#events = [...resultado.events]
     this.#resolveShot()
+  }
 
-    const nosso = hashState(this.table)
-    if (nosso !== stateHash) {
-      this.desync = `mesa divergiu do servidor (${nosso} ≠ ${stateHash})`
+  /**
+   * Reconstrói a partida a partir do histórico.
+   *
+   * Para quem chega no meio: a mesa é armada pelo seed e depois avança tacada
+   * a tacada até o estado atual. Não é animado — o jogador precisa ver onde a
+   * partida ESTÁ, não assistir de novo ao que perdeu.
+   *
+   * A ordem entre tacada e decisão segue a mesma regra do verificador de
+   * replay: se as regras abriram uma escolha, ela vem antes da próxima tacada.
+   * As regras recusam jogar com pendência aberta, então essa ordem não é
+   * escolha nossa. Há teste comparando uma mesa reconstruída com uma que jogou
+   * ao vivo — se as duas divergirem, é aqui que se descobre.
+   */
+  catchUp(shots: readonly EncodedShot[], decisions: readonly number[]): void {
+    const pendentes = [...decisions]
+
+    for (const shot of shots) {
+      if (this.summary.finished) break
+
+      if (this.pending) {
+        const escolha = pendentes.shift()
+        if (escolha === undefined) break
+        this.choose(escolha)
+      }
+
+      const turno = this.summary.turn
+      this.applyRemoteShot(turno, shot, SEM_CONFERIR)
     }
+
+    // Decisão aberta no fim da partida ainda não foi respondida por ninguém;
+    // ela chega pelo `match.decision` normal.
+    this.#capturePrevious()
   }
 
   /** Recoloca a branca (bola na mão). */

@@ -197,6 +197,21 @@ export const ServerMessage = z.discriminatedUnion('t', [
   /** Os dois se comprometeram; pode revelar. */
   z.object({ t: z.literal('match.reveal.open') }),
 
+  /**
+   * Histórico da partida, para quem chega no meio.
+   *
+   * Vai o replay inteiro — seed, tacos, tacadas e decisões — porque é o mesmo
+   * formato que o cliente já sabe ler e que vai para a blockchain. Reenviar só
+   * o seed deixaria a mesa remontada na QUEBRA, e o jogador veria uma partida
+   * que não é a que está acontecendo.
+   */
+  z.object({
+    t: z.literal('match.history'),
+    replay: z.string(),
+    turn: z.union([z.literal(0), z.literal(1)]).nullable(),
+    deadline: z.number().nullable(),
+  }),
+
   /** A quebra está definida e a partida começou. */
   z.object({
     t: z.literal('match.start'),

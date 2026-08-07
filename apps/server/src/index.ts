@@ -231,15 +231,13 @@ function abrirPartidaSePronta(room: { state: string; matchId: string; creator: s
 /**
  * Põe um jogador recém-conectado de volta na partida.
  *
- * Manda o `match.begin` de novo e, se a partida já começou, o `match.start`
- * com o seed — a mesa é remontada do zero e as tacadas seguintes chegam pelo
- * fluxo normal.
+ * Manda, em ordem: o `match.begin`, o `match.start` com o seed, o histórico do
+ * que já foi jogado e a decisão aberta, se houver. Com isso a mesa é remontada
+ * exatamente no estado atual, e as tacadas seguintes chegam pelo fluxo normal.
  *
- * LIMITAÇÃO CONHECIDA: quem reconecta no meio de uma partida remonta a mesa na
- * QUEBRA, não no estado atual, porque só o seed é reenviado. Enquanto o
- * servidor não mandar as tacadas já jogadas, reconectar no meio deixa a tela
- * dessincronizada — e é por isso que a tela avisa em vez de fingir que está
- * tudo certo.
+ * O histórico vai no formato do replay, que o cliente já sabe ler e que é o
+ * mesmo que vai para a blockchain — não existe um segundo formato de
+ * sincronização para divergir do primeiro.
  */
 function reenviarPartida(ws: ServerWebSocket<Session>, address: string): void {
   const r = matches.resume(address)
@@ -261,6 +259,29 @@ function reenviarPartida(ws: ServerWebSocket<Session>, address: string): void {
       turn: r.match.turn ?? 0,
       deadline: r.match.deadline ?? 0,
     })
+
+    // E o que já foi jogado. Sem isto a mesa é remontada na QUEBRA, e o
+    // jogador vê uma partida que não é a que está acontecendo.
+    if (r.match.recorder.shotCount > 0) {
+      send(ws, {
+        t: 'match.history',
+        replay: Buffer.from(r.match.recorder.toBytes()).toString('hex'),
+        turn: r.match.turn,
+        deadline: r.match.deadline,
+      })
+    }
+
+    // Decisão aberta esperando alguém: quem reconecta precisa vê-la.
+    const p = r.match.pending
+    if (p) {
+      send(ws, {
+        t: 'match.decision',
+        chooser: p.chooser,
+        kind: p.kind,
+        options: [...p.options],
+        deadline: r.match.deadline ?? 0,
+      })
+    }
   }
 }
 

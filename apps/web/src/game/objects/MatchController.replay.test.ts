@@ -177,3 +177,60 @@ const semente = (base: number): Uint8Array =>
 
 /** Hash do estado físico, no mesmo formato que o verificador devolve. */
 const hashDaMesa = (match: MatchController): string => hashState(match.table)
+
+describe('reconstruir do histórico chega ao mesmo lugar', () => {
+  /**
+   * O teste que sustenta a reconexão.
+   *
+   * Quem chega no meio de uma partida recebe o histórico e o aplica; se a mesa
+   * reconstruída não for IDÊNTICA à de quem jogou ao vivo, o jogador voltaria
+   * olhando para outra partida — e a próxima tacada dele seria mirada numa
+   * mesa que não existe.
+   */
+  for (const modo of GAME_MODES) {
+    test(`${modo}: mesa reconstruída é idêntica, bola por bola`, () => {
+      const aoVivo = jogarPartida(modo, 11, 25)
+
+      const r = aoVivo.recorder.build()
+      const reconstruida = new MatchController(modo, r.seed)
+      reconstruida.catchUp(r.shots, r.decisions)
+
+      expect(hashDaMesa(reconstruida)).toBe(hashDaMesa(aoVivo))
+    })
+
+    test(`${modo}: o estado de regras também confere`, () => {
+      const aoVivo = jogarPartida(modo, 5, 25)
+
+      const r = aoVivo.recorder.build()
+      const reconstruida = new MatchController(modo, r.seed)
+      reconstruida.catchUp(r.shots, r.decisions)
+
+      // Não basta a mesa: de quem é a vez e quem já venceu vêm das regras.
+      expect(reconstruida.summary.turn).toBe(aoVivo.summary.turn)
+      expect(reconstruida.summary.winner).toBe(aoVivo.summary.winner)
+      expect(reconstruida.summary.onTable).toEqual(aoVivo.summary.onTable)
+    })
+  }
+
+  test('o replay da reconstruída ainda verifica', () => {
+    // Reconstruir não pode corromper o gravador: o replay que sai dela precisa
+    // continuar provando a mesma partida.
+    const aoVivo = jogarPartida('eightball', 9, 25)
+    const r = aoVivo.recorder.build()
+
+    const reconstruida = new MatchController('eightball', r.seed)
+    reconstruida.catchUp(r.shots, r.decisions)
+
+    const conferido = verifyReplay(decodeReplay(reconstruida.recorder.toBytes()))
+    expect(conferido.stateHash).toBe(hashDaMesa(aoVivo))
+  })
+
+  test('histórico vazio deixa a mesa na quebra', () => {
+    const m = new MatchController('eightball', 4)
+    const antes = hashDaMesa(m)
+
+    m.catchUp([], [])
+
+    expect(hashDaMesa(m)).toBe(antes)
+  })
+})

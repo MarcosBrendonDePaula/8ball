@@ -504,6 +504,7 @@ export type MatchMessage = Extract<
       | 'match.begin'
       | 'match.reveal.open'
       | 'match.start'
+      | 'match.history'
       | 'match.shot'
       | 'match.decision'
       | 'match.decided'
@@ -517,6 +518,7 @@ const MATCH_MESSAGES = new Set<ServerMessage['t']>([
   'match.begin',
   'match.reveal.open',
   'match.start',
+  'match.history',
   'match.shot',
   'match.decision',
   'match.decided',

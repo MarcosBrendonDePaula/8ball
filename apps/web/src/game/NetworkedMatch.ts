@@ -1,6 +1,7 @@
 import type { MatchController } from '@/game/objects/MatchController'
 import type { GameClient, MatchMessage } from '@/net/client'
 import type { GameModeId } from '@zinc-pool/engine-rules'
+import { decodeReplay } from '@zinc-pool/replay'
 
 /**
  * Cola entre o servidor e a cena.
@@ -115,6 +116,15 @@ export function connectMatch(
           deadline: msg.deadline,
           mensagem: null,
         })
+        break
+      }
+
+      case 'match.history': {
+        // Chegou no meio: a mesa foi armada na quebra pelo `match.start` e
+        // agora avança até onde a partida está de verdade.
+        const r = decodeReplay(fromHex(msg.replay))
+        controller?.catchUp(r.shots, r.decisions)
+        patch({ turn: msg.turn, deadline: msg.deadline, mensagem: 'Partida retomada.' })
         break
       }
 
