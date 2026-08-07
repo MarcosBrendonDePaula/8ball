@@ -1,0 +1,25 @@
+{
+  "name": "@zinc-pool/web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.7.0",
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0",
+    "@zinc-pool/chain-client": "workspace:*",
+    "@zinc-pool/protocol": "workspace:*",
+    "buffer": "^6.0.3",
+    "@zinc-pool/engine-physics": "workspace:*",
+    "@zinc-pool/engine-rules": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

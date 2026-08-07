@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.local
+*.tsbuildinfo
+.DS_Store
+
+# Anchor / Solana (marco M5)
+target/
+test-ledger/
+**/*.so
+keypairs/
+
+# Carteira do faucet de devnet. Nunca comitar chave privada.
+.devnet-faucet.json

@@ -1,0 +1,211 @@
+/*
+ * Painel de administração.
+ *
+ * Layout largo e denso, ao contrário do jogo: aqui a tarefa é varrer muitos
+ * números de uma vez, não focar numa ação. Reaproveita os tokens de cor do
+ * jogo para os dois parecerem o mesmo produto.
+ */
+
+body.admin {
+  display: block;
+  padding: 28px 24px 60px;
+}
+
+body.admin #app {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.admin-header h1 {
+  font-size: 22px;
+}
+
+.admin-acoes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.admin-acoes button {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.fraco {
+  color: var(--text-dim);
+  font: 400 11px/1 var(--mono);
+}
+
+.alerta {
+  color: var(--gold);
+}
+
+section {
+  margin-bottom: 28px;
+}
+
+.section .travado {
+  margin-left: auto;
+  color: var(--gold);
+  border-color: rgba(232, 196, 119, 0.35);
+}
+
+/* --------------------------------------------------------------- cofres */
+
+.cofres {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.cofre {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--felt-800);
+}
+
+.cofre h3 {
+  margin: 0 0 8px;
+  font: 600 12px/1 var(--font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.cofre-valor {
+  font: 600 24px/1 var(--mono);
+  color: var(--gold);
+  margin-bottom: 12px;
+}
+
+.cofre-valor span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.mini {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  font: 400 11px/1.4 var(--mono);
+}
+
+.mini div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini dt {
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.mini dd {
+  margin: 0;
+}
+
+.cofre-link {
+  font: 400 11px/1 var(--mono);
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.cofre-link:hover {
+  color: var(--chalk);
+}
+
+/* --------------------------------------------------------------- tabela */
+
+.tabela-wrap {
+  /* Tabela larga rola sozinha; a página nunca rola na horizontal. */
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font: 400 12px/1.5 var(--mono);
+  white-space: nowrap;
+}
+
+.tabela th {
+  text-align: left;
+  padding: 10px 12px;
+  font: 500 10px/1 var(--font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.tabela td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--felt-800);
+}
+
+.tabela tr:last-child td {
+  border-bottom: 0;
+}
+
+.tabela .num {
+  text-align: right;
+}
+
+.tabela .destaque {
+  color: var(--gold);
+}
+
+.tabela a {
+  color: var(--text);
+  text-decoration-color: var(--line);
+}
+
+.tabela a:hover {
+  color: var(--chalk);
+}
+
+.tabela tr.vencida td {
+  background: rgba(232, 196, 119, 0.05);
+}
+
+.tabela button {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+
+.tag {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.tag[data-estado='committed'] {
+  color: var(--chalk);
+  border-color: rgba(79, 209, 139, 0.4);
+}
+
+.footnote code {
+  font-family: var(--mono);
+  color: var(--text);
+}

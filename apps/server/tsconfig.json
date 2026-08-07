@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@zinc-pool/protocol": ["../../packages/protocol/src/index.ts"],
+      "@zinc-pool/*": ["../../packages/*/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,95 @@
+/*
+ * Tela da mesa.
+ *
+ * Ocupa a janela inteira: numa mesa de sinuca, área de tela é precisão de
+ * mira. Tudo o mais é acessório e fica compacto nas bordas.
+ */
+
+body.play {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+body.play #app {
+  max-width: none;
+  width: 100vw;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.play-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px 8px;
+}
+
+.play-modos {
+  display: flex;
+  gap: 6px;
+}
+
+.play-modos .modo {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+}
+
+.play-modos .modo.ativo {
+  color: #05170e;
+  background: linear-gradient(180deg, #63e09c, var(--chalk));
+  border-color: transparent;
+}
+
+.play-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.play-acoes button,
+.play-acoes a {
+  width: auto;
+  padding: 8px 14px;
+  font: 600 12px/1 var(--font);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  background: transparent;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.play-acoes button:hover,
+.play-acoes a:hover {
+  color: var(--text);
+  border-color: var(--chalk);
+}
+
+.play-descricao {
+  margin: 0;
+  padding: 0 18px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.play-mesa {
+  min-height: 0;
+  padding: 0 18px 18px;
+}
+
+#mesa {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Sem isso, arrastar na mesa seleciona texto e rola a página no celular. */
+  touch-action: none;
+  user-select: none;
+}
