@@ -11,6 +11,11 @@ import { FIXTURES, fixturesDigest, runFixture } from '@zinc-pool/engine-physics'
  *
  * Página separada de propósito — é ferramenta de verificação, não parte do
  * jogo. Abra em cada navegador que você pretende suportar.
+ *
+ * Por isso ela também não carrega folha de estilo nenhuma, nem o Tailwind: o
+ * estilo mora em atributos `style` para que a página continue legível mesmo se
+ * o build de CSS quebrar. Uma ferramenta de diagnóstico que depende do resto do
+ * sistema não serve para diagnosticar o sistema.
  */
 
 const app = document.getElementById('app')!

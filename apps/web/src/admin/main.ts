@@ -128,24 +128,38 @@ function renderConfig(s: AdminSnapshot): string {
       </div>
       <div class="row">
         <dt>Estado</dt>
-        <dd>${s.config.paused ? '<strong class="alerta">PAUSADO</strong>' : 'operando'}</dd>
+        <dd>${s.config.paused ? '<strong class="text-gold">PAUSADO</strong>' : 'operando'}</dd>
       </div>
     </dl>`
 }
 
+/** Texto de apoio: presente, mas fora do caminho de quem varre os números. */
+const FRACO = 'font-mono text-[11px]/none font-normal text-text-dim'
+
+const COFRE = 'rounded-caixa border border-line-soft bg-felt-800 p-4'
+
+const COFRE_TITULO =
+  'mx-0 mt-0 mb-2 font-sans text-xs/none font-semibold uppercase tracking-[0.06em] text-text-dim'
+
+/** Linha de `dt`/`dd` do resumo do cofre — miúda, para caber sob o valor. */
+const MINI_LINHA = 'flex justify-between gap-3'
+
 function renderCofre(titulo: string, cofre: AdminSnapshot['house'], rotuloSaida: string): string {
-  if (!cofre) return `<div class="cofre"><h3>${titulo}</h3><p class="empty">não criado</p></div>`
+  if (!cofre) {
+    return `<div class="${COFRE}"><h3 class="${COFRE_TITULO}">${titulo}</h3><p class="empty">não criado</p></div>`
+  }
 
   return `
-    <div class="cofre">
-      <h3>${titulo}</h3>
-      <div class="cofre-valor">${sol(cofre.lamports)} <span>SOL</span></div>
-      <dl class="mini">
-        <div><dt>entrou</dt><dd>${sol(cofre.totalIn)}</dd></div>
-        <div><dt>${rotuloSaida}</dt><dd>${sol(cofre.totalOut)}</dd></div>
-        ${cofre.matchesSettled > 0n ? `<div><dt>partidas</dt><dd>${cofre.matchesSettled}</dd></div>` : ''}
+    <div class="${COFRE}">
+      <h3 class="${COFRE_TITULO}">${titulo}</h3>
+      <div class="mb-3 font-mono text-2xl/none font-semibold text-gold">${sol(cofre.lamports)} <span class="text-[13px] text-text-dim">SOL</span></div>
+      <dl class="mx-0 mt-0 mb-3 grid gap-1 font-mono text-[11px]/[1.4]">
+        <div class="${MINI_LINHA}"><dt class="m-0 text-text-dim">entrou</dt><dd class="m-0">${sol(cofre.totalIn)}</dd></div>
+        <div class="${MINI_LINHA}"><dt class="m-0 text-text-dim">${rotuloSaida}</dt><dd class="m-0">${sol(cofre.totalOut)}</dd></div>
+        ${cofre.matchesSettled > 0n ? `<div class="${MINI_LINHA}"><dt class="m-0 text-text-dim">partidas</dt><dd class="m-0">${cofre.matchesSettled}</dd></div>` : ''}
       </dl>
-      <a class="cofre-link" href="${explorerAddressUrl(cofre.pda)}" target="_blank" rel="noopener">${esc(curto(cofre.pda))}</a>
+      <a class="font-mono text-[11px]/none text-text-dim no-underline hover:text-chalk"
+         href="${explorerAddressUrl(cofre.pda)}" target="_blank" rel="noopener">${esc(curto(cofre.pda))}</a>
     </div>`
 }
 
@@ -157,18 +171,22 @@ function renderMesa(m: AdminMatch): string {
   // quem devolve o depósito é o criador cancelando.
   const podeDestravar = vencido && m.state === 'committed'
 
+  const tag =
+    'inline-block rounded-full border px-2 py-[3px] text-[10px] ' +
+    (m.state === 'committed' ? 'border-chalk/40 text-chalk' : 'border-line text-text-dim')
+
   return `
     <tr class="${vencido ? 'vencida' : ''}">
       <td>
         <a href="${explorerAddressUrl(m.pda)}" target="_blank" rel="noopener">${esc(curto(m.pda))}</a>
       </td>
-      <td><span class="tag" data-estado="${m.state}">${m.state === 'waiting' ? 'aguardando' : 'comprometida'}</span></td>
-      <td class="num">${sol(m.stakeLamports)}</td>
-      <td class="num">${sol(pote)}</td>
-      <td class="num destaque">${sol(m.escrowLamports)}</td>
+      <td><span class="${tag}">${m.state === 'waiting' ? 'aguardando' : 'comprometida'}</span></td>
+      <td class="text-right">${sol(m.stakeLamports)}</td>
+      <td class="text-right">${sol(pote)}</td>
+      <td class="text-right text-gold">${sol(m.escrowLamports)}</td>
       <td>${esc(curto(m.creator))}</td>
-      <td>${m.opponent ? esc(curto(m.opponent)) : '<span class="fraco">—</span>'}</td>
-      <td class="${vencido ? 'alerta' : ''}">${esc(texto)}</td>
+      <td>${m.opponent ? esc(curto(m.opponent)) : `<span class="${FRACO}">—</span>`}</td>
+      <td class="${vencido ? 'text-gold' : ''}">${esc(texto)}</td>
       <td>
         ${
           podeDestravar
@@ -191,15 +209,15 @@ function render(): void {
   root.innerHTML = `
     <div class="netbar" data-real="${CLUSTER === 'mainnet-beta'}">
       <span class="netbar-dot"></span>
-      <strong>${esc(CLUSTER === 'mainnet-beta' ? 'MAINNET' : CLUSTER.toUpperCase())}</strong>
-      <span class="netbar-text">Painel de administração — leitura direta da blockchain.</span>
+      <strong class="flex-none font-mono text-[11px]/none font-bold tracking-[0.08em]">${esc(CLUSTER === 'mainnet-beta' ? 'MAINNET' : CLUSTER.toUpperCase())}</strong>
+      <span class="text-[11px] text-text-dim">Painel de administração — leitura direta da blockchain.</span>
     </div>
 
-    <header class="admin-header">
-      <h1>Administração</h1>
-      <div class="admin-acoes">
-        <span class="fraco">${s ? `atualizado ${new Date(s.fetchedAt).toLocaleTimeString('pt-BR')}` : 'carregando…'}</span>
-        <button id="atualizar" class="ghost">Atualizar</button>
+    <header class="mb-6 flex flex-wrap items-baseline justify-between gap-4">
+      <h1 class="text-[22px] font-bold tracking-[-0.01em]">Administração</h1>
+      <div class="flex items-center gap-3 text-[12px]">
+        <span class="${FRACO}">${s ? `atualizado ${new Date(s.fetchedAt).toLocaleTimeString('pt-BR')}` : 'carregando…'}</span>
+        <button id="atualizar" class="ghost w-auto px-3.5 py-2 text-xs/none">Atualizar</button>
       </div>
     </header>
 
@@ -210,23 +228,23 @@ function render(): void {
       !s
         ? '<p class="empty">Lendo a blockchain…</p>'
         : `
-      <section>
+      <section class="mb-7">
         <h2 class="section">Configuração</h2>
         ${renderConfig(s)}
       </section>
 
-      <section>
+      <section class="mb-7">
         <h2 class="section">Cofres</h2>
-        <div class="cofres">
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
           ${renderCofre('Casa', s.house, 'sacado')}
           ${renderCofre('Protocolo', s.treasury, 'queimado')}
         </div>
       </section>
 
-      <section>
+      <section class="mb-7">
         <h2 class="section">
           Mesas ${s.matches.length ? `<span>${s.matches.length}</span>` : ''}
-          ${totalTravado > 0n ? `<span class="travado">${sol(totalTravado)} SOL travados</span>` : ''}
+          ${totalTravado > 0n ? `<span class="ml-auto border-gold/35 text-gold">${sol(totalTravado)} SOL travados</span>` : ''}
         </h2>
         ${
           s.matches.length

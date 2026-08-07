@@ -1,5 +1,6 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 
 const r = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
@@ -7,6 +8,10 @@ export default defineConfig({
   // `@solana/web3.js` v1 referencia `global` em tempo de módulo, antes de
   // qualquer polyfill nosso rodar. Só um define resolve.
   define: { global: 'globalThis' },
+
+  // O Tailwind precisa varrer os `.ts` também: a interface é montada com
+  // template strings, então as classes só existem dentro do TypeScript.
+  plugins: [tailwindcss()],
 
   resolve: {
     alias: {

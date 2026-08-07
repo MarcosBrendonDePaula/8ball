@@ -52,20 +52,46 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
       versao,
     }
 
-    // Reproduzir custa alguns milissegundos por partida e é a única coisa aqui
-    // que o jogador não poderia obter olhando o explorer.
+    /*
+     * Reproduzir custa alguns milissegundos por partida e é a única coisa aqui
+     * que o jogador não obteria olhando o explorer.
+     *
+     * DUAS checagens, e só duas — porque só duas são possíveis hoje:
+     *
+     *   1. o hash dos bytes bate com o `result_hash` gravado, o que prova que
+     *      o replay não foi trocado depois da liquidação
+     *   2. o replay reproduz até um vencedor, o que prova que é uma partida
+     *      completa e válida
+     *
+     * O que NÃO dá para conferir daqui é a identidade do vencedor. O replay
+     * chama os jogadores de 0 e 1; o `MatchRecord` guarda as carteiras do
+     * vencedor e do perdedor, mas não em qual slot cada uma jogou. Ligar os
+     * dois exige o criador gravado na conta, que hoje não está lá.
+     *
+     * A versão anterior deste código FINGIA fazer essa ligação, chutando que o
+     * jogador era o slot 0 quando vencia — e acusava divergência em partidas
+     * legítimas.
+     */
     try {
       const conferido = verifyReplay(decodeReplay(r.replay))
-      const vencedorGravado = r.won ? 0 : 1
-      const bate =
-        conferido.winner !== null &&
-        (conferido.winner === vencedorGravado) === r.winner.equals(new PublicKey(address))
 
-      return {
-        ...base,
-        verificado: bate ? ('confere' as const) : ('divergiu' as const),
-        motivo: bate ? null : 'o replay aponta outro vencedor',
+      if (!mesmosBytes(conferido.replayHash, r.resultHash)) {
+        return {
+          ...base,
+          verificado: 'divergiu' as const,
+          motivo: 'os bytes do replay não batem com o hash gravado na liquidação',
+        }
       }
+
+      if (conferido.winner === null) {
+        return {
+          ...base,
+          verificado: 'erro' as const,
+          motivo: 'o replay não chega a um vencedor',
+        }
+      }
+
+      return { ...base, verificado: 'confere' as const, motivo: null }
     } catch (err) {
       // Formato ou física de outra versão: nada disso é fraude, e chamar de
       // divergência assustaria à toa. A partida continua auditável — só exige
@@ -81,9 +107,21 @@ export function renderHistory(entradas: HistoryEntry[], symbol: string): string 
     return `<p class="empty">Nenhuma partida liquidada ainda.</p>`
   }
 
-  return `<ul class="historico">
+  return `<ul class="mx-0 mt-0 mb-[18px] grid list-none gap-1.5 p-0">
     ${entradas.map((e) => linha(e, symbol)).join('')}
   </ul>`
+}
+
+/**
+ * Cor do selo de conferência.
+ *
+ * O selo é a informação mais importante da linha: diz se a partida foi
+ * conferida pelo próprio navegador, e não pela nossa palavra.
+ */
+const TOM: Record<HistoryEntry['verificado'], string> = {
+  confere: 'text-chalk',
+  divergiu: 'font-semibold text-[#e06c5b]',
+  erro: 'opacity-50',
 }
 
 function linha(e: HistoryEntry, symbol: string): string {
@@ -94,17 +132,25 @@ function linha(e: HistoryEntry, symbol: string): string {
     minute: '2-digit',
   })
 
-  return `<li class="hist-linha ${e.won ? 'venceu' : 'perdeu'}">
-    <span class="hist-resultado">${e.won ? 'Vitória' : 'Derrota'}</span>
-    <span class="hist-pote">${formatAmount(e.pot)} ${symbol}</span>
-    <span class="hist-quando">${quando}</span>
-    <span class="hist-prova hist-${e.verificado}" title="${esc(e.motivo ?? 'O replay gravado reproduz este resultado.')}">
+  // Só resultado e valor dividem a primeira linha; o resto ocupa a largura toda
+  // logo abaixo, com `col-span-full`. Valores em `tabular-nums` porque a lista é
+  // lida na vertical: dígito de largura variável desalinha a coluna.
+  return `<li class="hist-linha group">
+    <span class="font-semibold ${e.won ? 'text-chalk' : 'opacity-65'}">${e.won ? 'Vitória' : 'Derrota'}</span>
+    <span class="tabular-nums opacity-80">${formatAmount(e.pot)} ${symbol}</span>
+    <span class="col-span-full text-[11px] tabular-nums opacity-80">${quando}</span>
+    <span class="col-span-full whitespace-nowrap text-[12px] ${TOM[e.verificado]}" title="${esc(e.motivo ?? 'O replay gravado reproduz este resultado.')}">
       ${SELO[e.verificado]}
     </span>
-    <span class="hist-versao" title="Formato do replay e versão da física com que a partida foi jogada. Uma partida só reproduz igual na física que a gerou.">
+    <!-- A versão da física é o que decide se uma partida antiga ainda reproduz
+         igual. Discreta, mas visível: quem não sabe o que é ignora; quem sabe,
+         entende na hora por que um replay antigo não confere. -->
+    <span class="col-span-full font-mono text-[10px]/none font-medium tracking-[0.02em] opacity-40 group-hover:opacity-75"
+          title="Formato do replay e versão da física com que a partida foi jogada. Uma partida só reproduz igual na física que a gerou.">
       ${e.versao ? `fmt v${e.versao.formato} · fis v${e.versao.fisica}` : '—'}
     </span>
-    <a class="hist-link" href="${explorerAddressUrl(e.pda)}" target="_blank" rel="noopener">
+    <a class="col-span-full justify-self-start whitespace-nowrap text-[12px] opacity-70 hover:opacity-100"
+       href="${explorerAddressUrl(e.pda)}" target="_blank" rel="noopener">
       ver na chain ↗
     </a>
   </li>`
@@ -128,6 +174,9 @@ function explicar(err: unknown): string {
   }
   return texto.slice(0, 120)
 }
+
+const mesmosBytes = (a: Uint8Array, b: Uint8Array): boolean =>
+  a.length === b.length && a.every((byte, i) => byte === b[i])
 
 /** Escapa texto que vai para um atributo HTML. */
 const esc = (t: string): string =>

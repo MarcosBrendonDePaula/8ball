@@ -144,8 +144,8 @@ function renderNetworkBar(): string {
   return `
     <div class="netbar" data-real="${real}">
       <span class="netbar-dot" aria-hidden="true"></span>
-      <strong>${esc(rotulo)}</strong>
-      <span class="netbar-text">${esc(explicacao)}</span>
+      <strong class="flex-none font-mono text-[11px]/none font-bold tracking-[0.08em]">${esc(rotulo)}</strong>
+      <span class="text-[11px] text-text-dim">${esc(explicacao)}</span>
     </div>`
 }
 
@@ -154,7 +154,7 @@ function renderBadges(): string {
   const conn = online ? 'conectado' : netState.connection === 'connecting' ? 'conectando…' : 'offline'
   const programa = netState.limits?.programId
   return `
-    <div class="badges">
+    <div class="mb-5 flex flex-wrap gap-1.5">
       <span class="badge" data-tone="${online ? 'live' : 'warn'}">${conn}</span>
       <span class="badge" data-tone="live">escrow on-chain</span>
       ${
@@ -180,7 +180,7 @@ function renderGate(): string {
 
   return `
     ${renderBadges()}
-    <div class="actions">
+    <div class="grid gap-2.5">
       ${button}
       ${connected ? '<button id="disconnect" class="ghost">Desconectar carteira</button>' : ''}
     </div>
@@ -202,12 +202,12 @@ function renderMyRoom(room: Room): string {
   // Com a tela larga, a sala própria fica num painel centrado: ela é UMA
   // coisa só, e esticá-la por 1180px deixaria os rótulos longe dos valores.
   return `
-    <div class="sala-unica">
+    <div class="mx-auto max-w-[520px]">
       <section class="painel">    ${renderBadges()}
     <div class="notice" data-tone="info">
       ${
         waiting
-          ? `Sua mesa está aberta e o depósito está travado no contrato. Sai da lista em <span id="countdown">…</span> se ninguém entrar — o dinheiro continua seu, basta cancelar.`
+          ? `Sua mesa está aberta e o depósito está travado no contrato. Sai da lista em <span id="countdown" class="font-mono text-text">…</span> se ninguém entrar — o dinheiro continua seu, basta cancelar.`
           : `Mesa fechada com <strong>${esc(short(other ?? '?'))}</strong>. Os dois depósitos estão no contrato.`
       }
     </div>
@@ -221,7 +221,7 @@ function renderMyRoom(room: Room): string {
       <div class="row"><dt>Adversário</dt><dd>${other ? esc(short(other)) : 'aguardando…'}</dd></div>
     </dl>
 
-    <div class="actions">
+    <div class="grid gap-2.5">
       ${
         waiting
           ? `<button id="cancel" class="ghost" ${busy ? 'disabled' : ''} data-room="${room.id}">
@@ -244,13 +244,13 @@ function renderMyRoom(room: Room): string {
 function renderRoomRow(room: Room): string {
   return `
     <li class="room">
-      <div class="room-main">
-        <span class="room-label">${esc(room.label)}</span>
-        <span class="room-host">${esc(GAME_MODE_INFO[room.mode].name)} · ${esc(short(room.creator))}</span>
+      <div class="grid min-w-0 gap-[3px]">
+        <span class="truncate text-[13px] font-medium">${esc(room.label)}</span>
+        <span class="font-mono text-[11px]/none text-text-dim">${esc(GAME_MODE_INFO[room.mode].name)} · ${esc(short(room.creator))}</span>
       </div>
-      <div class="room-side">
-        <span class="room-stake">${formatAmount(room.stake)} ${esc(symbol())}</span>
-        <button class="join" ${busy ? 'disabled' : ''} data-room="${room.id}">Entrar</button>
+      <div class="flex flex-none items-center gap-2.5">
+        <span class="font-mono text-xs/none font-medium text-gold">${formatAmount(room.stake)} ${esc(symbol())}</span>
+        <button class="join w-auto px-3.5 py-2 text-xs/none" ${busy ? 'disabled' : ''} data-room="${room.id}">Entrar</button>
       </div>
     </li>`
 }
@@ -269,16 +269,17 @@ function renderFaucet(): string {
       : ''
   }
 
+  // Tracejado: é um recurso de teste, não uma ação do produto.
   return `
-    <div class="faucet">
-      <div class="faucet-text">
+    <div class="mt-3.5 flex items-center gap-3 rounded-caixa border border-dashed border-line px-3.5 py-3">
+      <div class="flex-1 text-xs/[1.5] text-text-dim">
         ${
           balance === 0n
-            ? `Sem SOL na <strong>${esc(cluster())}</strong>. O SOL de mainnet não aparece aqui — são redes separadas.`
+            ? `Sem SOL na <strong class="font-mono text-text">${esc(cluster())}</strong>. O SOL de mainnet não aparece aqui — são redes separadas.`
             : 'Precisa de mais SOL de teste?'
         }
       </div>
-      <button id="faucet" class="ghost" ${busy ? 'disabled' : ''}>
+      <button id="faucet" class="ghost w-auto flex-none px-3.5 py-[9px] text-xs/none" ${busy ? 'disabled' : ''}>
         ${busy && netState.pending === 'faucet' ? '<span class="spinner"></span>Pedindo…' : 'Pedir SOL de teste'}
       </button>
     </div>`
@@ -288,30 +289,46 @@ function renderFaucet(): string {
  * O lobby, em três colunas.
  *
  * Cada uma responde a uma pergunta diferente, e é isso que justifica a
- * separação: quem eu sou, o que eu faço, o que eu já fiz. Espremer as três num
+ * separação:
+ *
+ *   esquerda  quem eu sou      saldo, retrospecto
+ *   meio      o que eu faço    criar mesa, entrar numa
+ *   direita   o que já fiz     histórico auditável
+ *
+ * O meio é o que cresce, porque é onde a ação está. As laterais têm largura
+ * fixa: saldo e histórico não ficam melhores esticados. Espremer as três num
  * cartão só transformava a página numa lista comprida sem hierarquia.
+ *
+ * Em duas colunas o histórico desce para a largura toda — é o conteúdo mais
+ * dispensável quando o espaço aperta, ninguém aposta olhando o passado. Os
+ * cortes são `max-width`, e não os breakpoints do Tailwind, porque as larguras
+ * saem do próprio conteúdo: 1180px é onde as três colunas param de caber.
  */
 function renderLobby(): string {
   const rooms = netState.rooms
   const balance = netState.lamports
 
   return `
-    <div class="lobby">
-      <aside class="coluna">
+    <div class="grid grid-cols-[300px_minmax(0,1fr)_340px] items-start gap-5
+                max-[1180px]:grid-cols-[280px_minmax(0,1fr)]
+                max-[820px]:grid-cols-1 max-[820px]:gap-4">
+      <aside class="min-w-0">
         ${renderCarteira()}
         ${renderRetrospecto()}
-        <div class="actions actions-rodape">
+        <div class="mt-4 grid gap-2.5">
           <button id="disconnect" class="ghost">Sair</button>
         </div>
       </aside>
 
-      <main class="coluna">
+      <main class="min-w-0">
         <section class="painel">
           <h2 class="section">Criar mesa</h2>
-          <div class="create">
-            <div class="create-fields">
-              <input id="stake" inputmode="decimal" placeholder="Entrada" value="${esc(form.stake)}" />
-              <select id="mode" aria-label="Modalidade">
+          <div class="mb-[22px] grid gap-2.5 rounded-caixa border border-line-soft bg-white/[1.5%] p-3.5">
+            <!-- Entrada e modalidade na mesma linha porque são as duas decisões
+                 da aposta; o nome é opcional e fica embaixo, na largura toda. -->
+            <div class="grid grid-cols-2 gap-2">
+              <input id="stake" class="m-0" inputmode="decimal" placeholder="Entrada" value="${esc(form.stake)}" />
+              <select id="mode" class="select-modo" aria-label="Modalidade">
                 ${GAME_MODES.map(
                   (id) =>
                     `<option value="${id}" ${form.mode === id ? 'selected' : ''}>${esc(
@@ -319,7 +336,7 @@ function renderLobby(): string {
                     )}</option>`,
                 ).join('')}
               </select>
-              <input id="label" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
+              <input id="label" class="col-span-2 m-0" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
             </div>
             <button id="create" ${busy || balance === 0n ? 'disabled' : ''}>
               ${busy && netState.pending === 'creating' ? '<span class="spinner"></span>Aguardando a Phantom…' : 'Criar mesa e depositar'}
@@ -341,7 +358,7 @@ function renderLobby(): string {
         </section>
       </main>
 
-      <aside class="coluna">
+      <aside class="min-w-0 max-[1180px]:col-span-full max-[820px]:col-auto">
         <section class="painel">
           <h2 class="section">Suas partidas ${historico.length ? `<span>${historico.length}</span>` : ''}</h2>
           ${
@@ -351,7 +368,8 @@ function renderLobby(): string {
           }
           <p class="footnote">
             Lido direto da blockchain. Cada partida é reproduzida aqui no seu
-            navegador para conferir o vencedor.
+            navegador: o selo confirma que os bytes gravados batem com o hash da
+            liquidação e chegam a um vencedor.
           </p>
         </section>
       </aside>
@@ -373,15 +391,17 @@ function render(): void {
   // melhor.
   root.className = noLobby ? 'largo' : ''
 
+  // No lobby o topo é uma FAIXA, não um cartão: ele emoldura a página em vez de
+  // competir com os painéis por atenção. Nas telas de entrada é o cartão.
   root.innerHTML = `
     ${renderNetworkBar()}
-    <main class="${noLobby ? 'painel-topo' : 'card'}">
-      <header class="topo">
-        <div class="brand">
+    <main class="${noLobby ? 'block p-1 pb-[22px]' : 'rounded-painel border border-line bg-linear-to-b from-felt-800 to-felt-900 p-7 shadow-[0_24px_60px_rgba(0,0,0,0.45)]'}">
+      <header class="flex flex-wrap items-center justify-between gap-5 ${noLobby ? 'mb-0' : 'mb-[22px] max-[560px]:mb-4'}">
+        <div class="flex items-center gap-3.5">
           <div class="ball8" aria-hidden="true"></div>
           <div>
-            <h1>ZINC Pool</h1>
-            <p class="subtitle">8-Ball 1v1 com aposta em ${esc(symbol())}. Salas com escrow on-chain.</p>
+            <h1 class="text-[20px] font-bold tracking-[-0.01em]">ZINC Pool</h1>
+            <p class="mt-1 text-[13px]/[1.5] text-text-dim">8-Ball 1v1 com aposta em ${esc(symbol())}. Salas com escrow on-chain.</p>
           </div>
         </div>
         ${noLobby ? renderBadges() : ''}
@@ -404,13 +424,16 @@ function render(): void {
 function renderCarteira(): string {
   const balance = netState.lamports
 
+  // `tabular-nums`: o saldo muda a cada bloco, e sem largura fixa de dígito ele
+  // treme no lugar a cada atualização.
   return `
-    <section class="painel painel-carteira">
-      <div class="carteira-saldo">
-        <span class="carteira-valor">${balance === null ? '—' : formatAmount(balance)}</span>
-        <span class="carteira-simbolo">${esc(symbol())}</span>
+    <section class="painel grid gap-1">
+      <div class="flex items-baseline gap-[7px]">
+        <span class="font-sans text-[28px]/none font-bold tabular-nums tracking-[-0.01em] text-chalk">${balance === null ? '—' : formatAmount(balance)}</span>
+        <span class="text-[13px] opacity-65">${esc(symbol())}</span>
       </div>
-      <a class="carteira-endereco" href="${explorerAddressUrl(netState.address!)}"
+      <a class="font-mono text-xs/none font-medium opacity-60 hover:opacity-100"
+         href="${explorerAddressUrl(netState.address!)}"
          target="_blank" rel="noopener">${esc(short(netState.address!))} ↗</a>
       ${renderFaucet()}
     </section>`
@@ -443,17 +466,23 @@ function renderRetrospecto(): string {
 
   const positivo = saldo >= 0n
 
+  const item = (numero: string, rotulo: string) =>
+    `<div class="grid gap-0.5 rounded-lg bg-white/3 py-2.5 text-center">
+       <span class="font-sans text-[19px]/none font-bold tabular-nums">${numero}</span>
+       <span class="text-[11px] opacity-60">${rotulo}</span>
+     </div>`
+
   return `
     <section class="painel">
       <h2 class="section">Seu retrospecto</h2>
-      <div class="estat">
-        <div class="estat-item"><span class="estat-numero">${vitorias}</span><span class="estat-rotulo">vitórias</span></div>
-        <div class="estat-item"><span class="estat-numero">${derrotas}</span><span class="estat-rotulo">derrotas</span></div>
-        <div class="estat-item"><span class="estat-numero">${aproveitamento}%</span><span class="estat-rotulo">aproveit.</span></div>
+      <div class="mb-3.5 grid grid-cols-3 gap-2.5">
+        ${item(String(vitorias), 'vitórias')}
+        ${item(String(derrotas), 'derrotas')}
+        ${item(`${aproveitamento}%`, 'aproveit.')}
       </div>
-      <div class="estat-saldo ${positivo ? 'positivo' : 'negativo'}">
+      <div class="flex items-baseline justify-between rounded-lg bg-white/3 px-3 py-2.5 text-[13px]">
         <span>Saldo em partidas</span>
-        <strong>${positivo ? '+' : '−'}${formatAmount((positivo ? saldo : -saldo).toString())} ${esc(symbol())}</strong>
+        <strong class="tabular-nums ${positivo ? 'text-chalk' : 'text-[#e06c5b]'}">${positivo ? '+' : '−'}${formatAmount((positivo ? saldo : -saldo).toString())} ${esc(symbol())}</strong>
       </div>
     </section>`
 }

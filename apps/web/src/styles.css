@@ -1,954 +1,385 @@
-:root {
-  --felt-900: #08170f;
-  --felt-800: #0c2419;
-  --felt-700: #123324;
-  --line: #1d4a35;
-  --line-soft: #163a29;
-  --text: #e8f3ec;
-  --text-dim: #8fae9d;
-  --chalk: #4fd18b;
-  --gold: #e8c477;
-  --danger: #ff8480;
-  --radius: 14px;
-  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-height: 100dvh;
-  font-family: var(--font);
-  color: var(--text);
-  background:
-    radial-gradient(1100px 700px at 50% -15%, #16412d 0%, transparent 60%),
-    var(--felt-900);
-  display: grid;
-  /* Alinhado ao topo: com o lobby cheio, centralizar verticalmente faz a
-     página pular a cada partida que entra na lista. */
-  place-items: start center;
-  padding: 24px;
-  min-height: 100vh;
-}
-
-/* Telas de entrada continuam num cartão estreito: uma coluna de 1100px com
-   dois botões fica pior, não melhor. O lobby recebe `.largo`. */
-#app {
-  width: 100%;
-  max-width: 480px;
-  transition: max-width 0.2s ease;
-}
-
-#app.largo {
-  max-width: 1180px;
-}
-
-/* ------------------------------------------------------- faixa de rede */
-
-.netbar {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  border-radius: 10px;
-  border: 1px solid;
-  font-size: 12px;
-  line-height: 1.4;
-  /* Rede de teste: sóbrio, informativo. */
-  color: var(--chalk);
-  border-color: rgba(79, 209, 139, 0.35);
-  background: rgba(79, 209, 139, 0.08);
-}
-
-.netbar strong {
-  font: 700 11px/1 var(--mono);
-  letter-spacing: 0.08em;
-  flex: none;
-}
-
-.netbar-text {
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
-.netbar-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  flex: none;
-  box-shadow: 0 0 0 3px rgba(79, 209, 139, 0.15);
-}
-
-/* Dinheiro real: precisa parar o olho. */
-.netbar[data-real='true'] {
-  color: var(--gold);
-  border-color: rgba(232, 196, 119, 0.5);
-  background: rgba(232, 196, 119, 0.1);
-}
-
-.netbar[data-real='true'] .netbar-dot {
-  box-shadow: 0 0 0 3px rgba(232, 196, 119, 0.18);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .netbar[data-real='true'] .netbar-dot {
-    animation: none;
-  }
-}
-
-.card {
-  background: linear-gradient(180deg, var(--felt-800), var(--felt-900));
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 28px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.ball8 {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #5a5a5a, #0a0a0a 62%);
-  display: grid;
-  place-items: center;
-  flex: none;
-  box-shadow: inset 0 -4px 8px rgba(0, 0, 0, 0.7);
-}
-
-.ball8::after {
-  content: '8';
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  color: #111;
-  font: 700 11px/16px var(--font);
-  text-align: center;
-}
-
-h1 {
-  font-size: 20px;
-  letter-spacing: -0.01em;
-  margin: 0;
-}
-
-.subtitle {
-  color: var(--text-dim);
-  font-size: 13px;
-  margin: 0 0 22px;
-  line-height: 1.5;
-}
-
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 20px;
-}
-
-.badge {
-  font: 500 11px/1 var(--mono);
-  padding: 6px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--text-dim);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.badge[data-tone='live'] {
-  color: var(--chalk);
-  border-color: rgba(79, 209, 139, 0.4);
-}
-
-.badge-link {
-  text-decoration: none;
-}
-
-.badge-link:hover {
-  color: var(--chalk);
-  border-color: var(--chalk);
-}
-
-.badge[data-tone='warn'] {
-  color: var(--gold);
-  border-color: rgba(232, 196, 119, 0.35);
-}
-
-button {
-  font: 600 14px/1 var(--font);
-  color: #05170e;
-  background: linear-gradient(180deg, #63e09c, var(--chalk));
-  border: 0;
-  border-radius: 10px;
-  padding: 13px 18px;
-  width: 100%;
-  cursor: pointer;
-  transition: filter 0.15s ease, transform 0.05s ease;
-}
-
-button:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
-button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-button.ghost {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--line);
-}
-
-button.ghost:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--chalk);
-  filter: none;
-}
-
-.actions {
-  display: grid;
-  gap: 10px;
-}
-
-.rows {
-  display: grid;
-  gap: 1px;
-  background: var(--line-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 18px;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 13px 15px;
-  background: var(--felt-800);
-  font-size: 13px;
-}
-
-.row dt {
-  color: var(--text-dim);
-  margin: 0;
-  flex: none;
-}
-
-.hint {
-  font: 400 10px/1 var(--mono);
-  color: #4a6a56;
-  margin-left: 4px;
-}
-
-.row dd {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.row dd a {
-  color: var(--text);
-  text-decoration-color: var(--line);
-}
-
-.row dd a:hover {
-  color: var(--chalk);
-}
-
-.row dd strong {
-  font-size: 14px;
-  color: var(--gold);
-}
-
-input {
-  width: 100%;
-  font: 400 12px/1 var(--mono);
-  color: var(--text);
-  background: var(--felt-900);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 13px;
-  margin-bottom: 10px;
-}
-
-input::placeholder {
-  color: #48664f;
-}
-
-input:focus {
-  outline: 2px solid rgba(79, 209, 139, 0.4);
-  outline-offset: -1px;
-}
-
-.notice {
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 11px 13px;
-  border-radius: 10px;
-  margin-bottom: 16px;
-  border: 1px solid;
-}
-
-.notice[data-tone='error'] {
-  color: var(--danger);
-  border-color: rgba(255, 132, 128, 0.3);
-  background: rgba(255, 132, 128, 0.07);
-}
-
-.notice[data-tone='info'] {
-  color: var(--text-dim);
-  border-color: var(--line);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.footnote {
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 18px 0 0;
-  text-align: center;
-}
-
-/* ---------------------------------------------------------------- lobby */
-
-.create {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  margin-bottom: 22px;
-  background: rgba(255, 255, 255, 0.015);
-}
-
-/* Entrada e modalidade na mesma linha porque são as duas decisões da aposta;
-   o nome é opcional e fica embaixo, ocupando a largura toda. */
-.create-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.create-fields #label {
-  grid-column: 1 / -1;
-}
-
-.create input {
-  margin: 0;
-}
-
-.section {
-  font: 600 12px/1 var(--font);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin: 0 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section span {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--chalk);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 7px;
-  letter-spacing: 0;
-}
-
-.rooms {
-  list-style: none;
-  margin: 0 0 18px;
-  padding: 0;
-  display: grid;
-  gap: 1px;
-  background: var(--line-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  overflow: hidden;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.room {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 14px;
-  background: var(--felt-800);
-}
-
-.room-main {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.room-label {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.room-host {
-  font: 400 11px/1 var(--mono);
-  color: var(--text-dim);
-}
-
-.room-side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-}
-
-.room-stake {
-  font: 500 12px/1 var(--mono);
-  color: var(--gold);
-}
-
-.room .join {
-  width: auto;
-  padding: 8px 14px;
-  font-size: 12px;
-}
-
-.empty {
-  color: var(--text-dim);
-  font-size: 13px;
-  text-align: center;
-  padding: 26px 0;
-  margin: 0 0 18px;
-  border: 1px dashed var(--line-soft);
-  border-radius: 10px;
-}
-
-.faucet {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  margin-bottom: 16px;
-}
-
-.faucet-text {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  flex: 1;
-}
-
-.faucet-text strong {
-  color: var(--text);
-  font-family: var(--mono);
-}
-
-.faucet button {
-  width: auto;
-  flex: none;
-  padding: 9px 14px;
-  font-size: 12px;
-}
-
-.notice[data-tone='ok'] {
-  color: var(--chalk);
-  border-color: rgba(79, 209, 139, 0.35);
-  background: rgba(79, 209, 139, 0.07);
-}
-
-.notice a {
-  color: var(--chalk);
-}
-
-.notice strong,
-.notice #countdown {
-  color: var(--text);
-  font-family: var(--mono);
-}
-
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  vertical-align: -1px;
-  margin-right: 6px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 2s;
-  }
-}
-
-/* Entrar na mesa é um link, não um botão, para o navegador tratá-lo como
-   navegação — abrir em outra aba, voltar e o menu de contexto funcionam de
-   graça. A aparência é copiada do botão porque o estilo está no ELEMENTO
-   `button`, e um `a` não o herda. */
-.botao-jogar {
-  display: block;
-  box-sizing: border-box;
-  font: 600 14px/1 var(--font);
-  color: #05170e;
-  background: linear-gradient(180deg, #63e09c, var(--chalk));
-  border-radius: 10px;
-  padding: 13px 18px;
-  width: 100%;
-  text-align: center;
-  text-decoration: none;
-  transition: filter 0.15s ease;
-}
-.botao-jogar:hover {
-  filter: brightness(1.08);
-  color: #05170e;
-}
-
-/* O seletor de modalidade herda a caixa dos inputs vizinhos: a linha de criar
-   mesa precisa parecer uma coisa só, não três controles avulsos. */
-/* O `select` nativo herda o tema claro do sistema no Windows e destoa de todo
-   o resto. `appearance: none` mais uma seta desenhada resolve sem depender de
-   como cada navegador pinta o controle. */
-#mode {
-  appearance: none;
-  font: 500 14px/1 var(--font);
-  color: inherit;
-  background-color: rgba(255, 255, 255, 0.06);
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
-    linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 18px) center, calc(100% - 13px) center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 10px;
-  padding: 12px 34px 12px 14px;
-  cursor: pointer;
-}
-
-/* As opções abrem no menu do sistema; ao menos o fundo acompanha. */
-#mode option {
-  background: var(--felt-900);
-  color: var(--text);
-}
-
-/* ------------------------------------------------------------- histórico */
-
-.historico {
-  list-style: none;
-  margin: 0 0 18px;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.hist-linha {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto auto;
-  gap: 12px;
-  align-items: baseline;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 13px;
-}
-
-.hist-resultado {
-  font-weight: 600;
-}
-.hist-linha.venceu .hist-resultado {
-  color: var(--chalk);
-}
-.hist-linha.perdeu .hist-resultado {
-  opacity: 0.65;
-}
-
-.hist-pote,
-.hist-quando {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.8;
-}
-
-/* O selo é a informação mais importante da linha: diz se a partida foi
-   conferida pelo próprio navegador, e não pela nossa palavra. */
-.hist-prova {
-  font-size: 12px;
-  white-space: nowrap;
-}
-.hist-confere {
-  color: var(--chalk);
-}
-.hist-divergiu {
-  color: #e06c5b;
-  font-weight: 600;
-}
-.hist-erro {
-  opacity: 0.5;
-}
-
-.hist-link {
-  font-size: 12px;
-  opacity: 0.7;
-  white-space: nowrap;
-}
-.hist-link:hover {
-  opacity: 1;
-}
-
-@media (max-width: 560px) {
-  .hist-linha {
-    grid-template-columns: auto 1fr;
-    gap: 4px 10px;
-  }
-}
-
-/* ------------------------------------------------------------ topo */
-
-.topo {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 22px;
-}
-
-.topo .brand {
-  margin-bottom: 0;
-  align-items: center;
-  gap: 14px;
-}
-
-.topo .subtitle {
-  margin: 4px 0 0;
-}
-
-/* O saldo é o número que o jogador confere antes de cada aposta: fica grande e
-   sempre no mesmo lugar, em vez de perdido numa lista de propriedades. */
-.topo-carteira {
-  display: grid;
-  justify-items: end;
-  gap: 2px;
-}
-
-.topo-saldo {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.topo-valor {
-  font: 700 24px/1 var(--font);
-  font-variant-numeric: tabular-nums;
-  color: var(--chalk);
-}
-
-.topo-simbolo {
-  font-size: 13px;
-  opacity: 0.7;
-}
-
-.topo-endereco {
-  font: 500 12px/1 var(--mono);
-  opacity: 0.65;
-}
-.topo-endereco:hover {
-  opacity: 1;
-}
-
-@media (max-width: 560px) {
-  .topo {
-    margin-bottom: 16px;
-  }
-  .topo-carteira {
-    justify-items: start;
-  }
-}
-
-/* --------------------------------------------------- listas mais densas */
-
-/* Com mais largura disponível, as mesas ficam em cartões lado a lado em vez
-   de uma coluna alta que obriga a rolar. */
-.largo .rooms {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 8px;
-}
-
-.largo .room {
-  margin: 0;
-}
-
-/* Sair não merece um painel próprio: é saída, não conteúdo. */
-.actions-rodape {
-  margin-top: 16px;
-}
-
-/* ---------------------------------------------------------- painéis */
-
-/* Cada assunto num bloco próprio, em vez de tudo dentro de um cartão só.
-   Com a tela inteira disponível, um cartão gigante vira uma lista comprida
-   sem hierarquia — o olho não sabe onde começa uma coisa e acaba a outra. */
-.painel {
-  background: linear-gradient(180deg, var(--felt-800), var(--felt-900));
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 20px 22px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
-}
-
-.painel + .painel {
-  margin-top: 20px;
-}
-
-/* O painel de rodapé carrega informação de contexto, não ação principal. */
-.painel-sutil {
-  background: rgba(255, 255, 255, 0.02);
-  box-shadow: none;
-}
-
-.painel > .section:first-child {
-  margin-top: 0;
-}
-
-.painel > :last-child {
-  margin-bottom: 0;
-}
-
-/* O topo é uma faixa, não um cartão: ele emoldura a página em vez de competir
-   com os painéis por atenção. */
-.painel-topo {
-  display: block;
-  padding: 4px 4px 22px;
-}
-
-.painel-topo .topo {
-  margin-bottom: 0;
-}
-
-.painel-sutil .badges {
-  margin-bottom: 14px;
-}
-
-.painel-sutil .actions-rodape {
-  margin-top: 0;
-  max-width: none;
-}
-
-/* --------------------------------------------------- lobby em três colunas */
+@import 'tailwindcss';
+
+/* A interface é montada com template strings dentro do TypeScript: sem apontar
+   as fontes, o Tailwind varreria só o HTML e não geraria classe nenhuma. */
+@source '../src';
+@source '../*.html';
 
 /*
- * Cada coluna responde a uma pergunta diferente, e é isso que justifica a
- * separação:
+ * Tokens do produto.
  *
- *   esquerda  quem eu sou      saldo, retrospecto
- *   meio      o que eu faço    criar mesa, entrar numa
- *   direita   o que já fiz     histórico auditável
- *
- * O meio é o que cresce, porque é onde a ação está. As laterais têm largura
- * fixa: saldo e histórico não ficam melhores esticados.
+ * São exatamente as variáveis que existiam no `:root` da folha artesanal — o
+ * `@theme` só as promove a utilitários (`bg-felt-800`, `text-chalk`,
+ * `rounded-painel`) para que o markup pare de repetir `var(--…)`.
  */
-.lobby {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 340px;
-  gap: 20px;
-  align-items: start;
-}
+@theme {
+  --color-felt-900: #08170f;
+  --color-felt-800: #0c2419;
+  --color-felt-700: #123324;
+  --color-line: #1d4a35;
+  --color-line-soft: #163a29;
+  --color-text: #e8f3ec;
+  --color-text-dim: #8fae9d;
+  --color-chalk: #4fd18b;
+  --color-gold: #e8c477;
+  --color-danger: #ff8480;
 
-.coluna {
-  min-width: 0;
-}
+  /* O 14px era o `--radius` da folha antiga; o 10px estava repetido à mão em
+     todo controle e caixa menor, e vira token pelo mesmo motivo. */
+  --radius-painel: 14px;
+  --radius-caixa: 10px;
 
-/* Duas colunas: o histórico desce para a largura toda. É o conteúdo mais
-   dispensável quando o espaço aperta — ninguém aposta olhando o passado. */
-@media (max-width: 1180px) {
-  .lobby {
-    grid-template-columns: 280px minmax(0, 1fr);
+  /* Substituem as pilhas padrão do Tailwind: `font-sans` e `font-mono` passam a
+     significar o que `--font` e `--mono` significavam aqui. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+  --animate-girar: girar 0.7s linear infinite;
+  --animate-pulsar: pulsar 2s ease-in-out infinite;
+
+  @keyframes girar {
+    to {
+      transform: rotate(360deg);
+    }
   }
-  .lobby > .coluna:last-child {
-    grid-column: 1 / -1;
+
+  @keyframes pulsar {
+    50% {
+      opacity: 0.35;
+    }
   }
 }
 
-@media (max-width: 820px) {
-  .lobby {
-    grid-template-columns: 1fr;
-    gap: 16px;
+/*
+ * Regras de elemento.
+ *
+ * `button` e `input` continuam estilizados pelo ELEMENTO, e não por uma classe,
+ * porque telas fora desta migração (a mesa em hotseat, por exemplo) montam
+ * botões sem classe nenhuma e contam com essa aparência. Como moram na camada
+ * base, qualquer utilitário no markup vence sem precisar de `!`.
+ */
+@layer base {
+  /* O Preflight impõe `line-height: 1.5` em tudo. Aqui a entrelinha padrão é a
+     do navegador: rótulo, valor e selo são linhas curtas de uma altura só, e
+     1.5 abriria buraco entre elas. Onde o texto corre em parágrafo, a
+     entrelinha é declarada no próprio elemento. */
+  html {
+    line-height: normal;
   }
-  .lobby > .coluna:last-child {
-    grid-column: auto;
+
+  body {
+    @apply m-0 min-h-screen grid p-6 font-sans text-text;
+    /* Alinhado ao topo: com o lobby cheio, centralizar verticalmente faz a
+       página pular a cada partida que entra na lista. */
+    place-items: start center;
+    background:
+      radial-gradient(1100px 700px at 50% -15%, #16412d 0%, transparent 60%),
+      var(--color-felt-900);
+  }
+
+  /* O Preflight zera cor e sublinhado dos links; aqui devolvemos o padrão do
+     navegador, que é o que os links sem estilo próprio (endereço da carteira,
+     "ver na chain") sempre mostraram. `linktext` é a mesma cor de sistema que a
+     folha do navegador usa, então acompanha o `color-scheme: dark` das páginas
+     em vez de fixar um azul nosso. */
+  a {
+    color: linktext;
+    @apply underline;
+  }
+
+  /* Telas de entrada continuam num cartão estreito: uma coluna de 1100px com
+     dois botões fica pior, não melhor. O lobby recebe `.largo`. */
+  #app {
+    @apply w-full max-w-[480px];
+    transition: max-width 0.2s ease;
+  }
+
+  #app.largo {
+    @apply max-w-[1180px];
+  }
+
+  button {
+    @apply w-full cursor-pointer rounded-caixa border-0 px-[18px] py-[13px]
+      font-sans text-sm/none font-semibold text-[#05170e]
+      bg-linear-to-b from-[#63e09c] to-chalk;
+    transition: filter 0.15s ease, transform 0.05s ease;
+  }
+
+  button:hover:not(:disabled) {
+    @apply brightness-[1.08];
+  }
+
+  button:active:not(:disabled) {
+    @apply translate-y-px;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  input {
+    @apply mb-2.5 w-full rounded-caixa border border-line bg-felt-900
+      px-[13px] py-3 font-mono text-xs/none text-text;
+  }
+
+  input::placeholder {
+    @apply text-[#48664f];
+  }
+
+  input:focus {
+    @apply outline-2 -outline-offset-1 outline-chalk/40;
   }
 }
 
-/* --------------------------------------------------------- carteira */
+@layer components {
+  /* ----------------------------------------------------- faixa de rede */
 
-.painel-carteira {
-  display: grid;
-  gap: 4px;
-}
+  /*
+   * Fica como componente porque carrega estado: `data-real` repinta a faixa
+   * inteira e o ponto ao mesmo tempo. Espalhar isso em variantes no markup
+   * custaria mais para ler do que estas seis linhas.
+   */
+  .netbar {
+    @apply mb-3 flex items-center gap-[9px] rounded-caixa border
+      px-3.5 py-2.5 text-xs/[1.4] text-chalk border-chalk/35 bg-chalk/8;
+  }
 
-.carteira-saldo {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-}
+  .netbar-dot {
+    @apply size-[7px] flex-none rounded-full bg-current shadow-[0_0_0_3px_rgba(79,209,139,0.15)];
+  }
 
-/* O saldo é o número que se confere antes de cada aposta: grande, tabular e
-   sempre no mesmo lugar, em vez de perdido numa lista de propriedades. */
-.carteira-valor {
-  font: 700 28px/1 var(--font);
-  font-variant-numeric: tabular-nums;
-  color: var(--chalk);
-  letter-spacing: -0.01em;
-}
+  /* Dinheiro real: precisa parar o olho. */
+  .netbar[data-real='true'] {
+    @apply text-gold border-gold/50 bg-gold/10;
+  }
 
-.carteira-simbolo {
-  font-size: 13px;
-  opacity: 0.65;
-}
+  .netbar[data-real='true'] .netbar-dot {
+    @apply animate-pulsar shadow-[0_0_0_3px_rgba(232,196,119,0.18)];
+  }
 
-.carteira-endereco {
-  font: 500 12px/1 var(--mono);
-  opacity: 0.6;
-}
-.carteira-endereco:hover {
-  opacity: 1;
-}
+  @media (prefers-reduced-motion: reduce) {
+    .netbar[data-real='true'] .netbar-dot {
+      animation: none;
+    }
+  }
 
-.painel-carteira .faucet {
-  margin: 14px 0 0;
-}
+  /* ------------------------------------------------------------ marca */
 
-/* -------------------------------------------------------- retrospecto */
+  /* Bola 8 desenhada: dois gradientes e um pseudo-elemento não cabem em
+     utilitários sem virar uma linha ilegível. */
+  .ball8 {
+    @apply grid size-[34px] flex-none place-items-center rounded-full
+      shadow-[inset_0_-4px_8px_rgba(0,0,0,0.7)];
+    background: radial-gradient(circle at 32% 28%, #5a5a5a, #0a0a0a 62%);
+  }
 
-.estat {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 14px;
-}
+  .ball8::after {
+    content: '8';
+    @apply size-4 rounded-full bg-white text-center font-sans text-[11px]/4 font-bold text-[#111];
+  }
 
-.estat-item {
-  display: grid;
-  gap: 2px;
-  padding: 10px 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  text-align: center;
-}
+  /* --------------------------------------------------------- superfícies */
 
-.estat-numero {
-  font: 700 19px/1 var(--font);
-  font-variant-numeric: tabular-nums;
-}
+  /*
+   * Cada assunto num bloco próprio, em vez de tudo dentro de um cartão só.
+   * Com a tela inteira disponível, um cartão gigante vira uma lista comprida
+   * sem hierarquia — o olho não sabe onde começa uma coisa e acaba a outra.
+   */
+  .painel {
+    @apply rounded-painel border border-line bg-linear-to-b from-felt-800 to-felt-900
+      px-[22px] py-5 shadow-[0_18px_44px_rgba(0,0,0,0.35)];
+  }
 
-.estat-rotulo {
-  font-size: 11px;
-  opacity: 0.6;
-}
+  .painel + .painel {
+    @apply mt-5;
+  }
 
-.estat-saldo {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 13px;
-}
+  .painel > :last-child {
+    @apply mb-0;
+  }
 
-.estat-saldo strong {
-  font-variant-numeric: tabular-nums;
-}
-.estat-saldo.positivo strong {
-  color: var(--chalk);
-}
-.estat-saldo.negativo strong {
-  color: #e06c5b;
-}
+  /* ---------------------------------------------------------- rótulos */
 
-/* ------------------------------------------ histórico na coluna estreita */
+  .badge {
+    @apply rounded-full border border-line bg-white/2 px-[9px] py-1.5
+      font-mono text-[11px]/none font-medium text-text-dim;
+  }
 
-/* Em 340px a linha de cinco campos não cabe numa altura só: resultado e valor
-   em cima, data e prova embaixo. */
-.coluna .hist-linha {
-  grid-template-columns: auto 1fr;
-  gap: 3px 10px;
-}
+  .badge[data-tone='live'] {
+    @apply text-chalk border-chalk/40;
+  }
 
-.coluna .hist-quando,
-.coluna .hist-prova,
-.coluna .hist-link,
-.coluna .hist-versao {
-  grid-column: 1 / -1;
-}
+  .badge[data-tone='warn'] {
+    @apply text-gold border-gold/35;
+  }
 
-.coluna .hist-quando {
-  font-size: 11px;
-}
+  .badge-link {
+    @apply no-underline hover:text-chalk hover:border-chalk;
+  }
 
-.coluna .hist-link {
-  justify-self: start;
-}
+  .section {
+    @apply mx-0 mt-0 mb-2.5 flex items-center gap-2 font-sans text-xs/none font-semibold
+      uppercase tracking-[0.06em] text-text-dim;
+  }
 
-/* A sala própria é UMA coisa só: esticá-la por 1180px deixaria os rótulos
-   longe dos valores, que é o oposto de legível. */
-.sala-unica {
-  max-width: 520px;
-  margin: 0 auto;
-}
+  /* A contagem ao lado do título (mesas abertas, partidas) é sempre um `span`
+     solto: não vale uma classe só para ela. */
+  .section span {
+    @apply rounded-full border border-line px-[7px] py-0.5
+      font-mono text-[11px] tracking-normal text-chalk;
+  }
 
-/* A versão da física é o que decide se uma partida antiga ainda reproduz igual.
-   Discreta, mas visível: quem não sabe o que é ignora; quem sabe, entende
-   na hora por que um replay antigo não confere. */
-.hist-versao {
-  font: 500 10px/1 var(--mono);
-  opacity: 0.4;
-  letter-spacing: 0.02em;
-}
-.hist-linha:hover .hist-versao {
-  opacity: 0.75;
+  .painel > .section:first-child {
+    @apply mt-0;
+  }
+
+  /* ----------------------------------------------------------- avisos */
+
+  .notice {
+    @apply mb-4 rounded-caixa border px-[13px] py-[11px] text-xs/[1.5];
+  }
+
+  .notice[data-tone='error'] {
+    @apply text-danger border-danger/30 bg-danger/7;
+  }
+
+  .notice[data-tone='info'] {
+    @apply text-text-dim border-line bg-white/2;
+  }
+
+  .notice[data-tone='ok'] {
+    @apply text-chalk border-chalk/35 bg-chalk/7;
+  }
+
+  .notice a {
+    @apply text-chalk;
+  }
+
+  .notice strong {
+    @apply font-mono text-text;
+  }
+
+  .empty {
+    @apply mx-0 mt-0 mb-[18px] rounded-caixa border border-dashed border-line-soft
+      py-[26px] text-center text-[13px] text-text-dim;
+  }
+
+  .footnote {
+    @apply mx-0 mt-[18px] mb-0 text-center text-[11px]/[1.6] text-text-dim;
+  }
+
+  .spinner {
+    @apply mr-1.5 inline-block size-3 animate-girar rounded-full
+      border-2 border-current border-r-transparent align-[-1px];
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation-duration: 2s;
+    }
+  }
+
+  /* ------------------------------------------------- listas de valores */
+
+  /* O fundo aparece só pelo `gap` de 1px: é o que desenha as divisórias sem
+     ter de zerar a última borda da lista. */
+  .rows {
+    @apply mx-0 mt-0 mb-[18px] grid gap-px overflow-hidden rounded-caixa
+      border border-line-soft bg-line-soft;
+  }
+
+  .row {
+    @apply flex items-center justify-between gap-3 bg-felt-800 px-[15px] py-[13px] text-[13px];
+  }
+
+  .row dt {
+    @apply m-0 flex-none text-text-dim;
+  }
+
+  .row dd {
+    @apply m-0 text-right font-mono text-[12px] wrap-anywhere;
+  }
+
+  .row dd a {
+    @apply text-text decoration-line hover:text-chalk;
+  }
+
+  .row dd strong {
+    @apply text-[14px] text-gold;
+  }
+
+  /* --------------------------------------------------------- mesas abertas */
+
+  /* Com a largura do lobby disponível, as mesas ficam em cartões lado a lado em
+     vez de uma coluna alta que obriga a rolar. */
+  .rooms {
+    @apply mx-0 mt-0 mb-[18px] grid max-h-[300px] list-none gap-2 overflow-hidden overflow-y-auto
+      rounded-caixa border border-line-soft bg-line-soft p-0;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  .room {
+    @apply flex items-center justify-between gap-3 bg-felt-800 px-3.5 py-[11px];
+  }
+
+  /* --------------------------------------------------------- histórico */
+
+  /*
+   * O histórico só é renderizado na coluna estreita do lobby, e em 340px a
+   * linha de cinco campos não cabe numa altura só: resultado e valor em cima,
+   * data, prova e link embaixo (cada um pede `col-span-full` no markup).
+   */
+  .hist-linha {
+    @apply grid items-baseline gap-x-2.5 gap-y-[3px] rounded-lg
+      bg-white/4 px-3 py-2.5 text-[13px];
+    grid-template-columns: auto 1fr;
+  }
+
+  /* ------------------------------------------------------ entrar na mesa */
+
+  /* Entrar na mesa é um link, não um botão, para o navegador tratá-lo como
+     navegação — abrir em outra aba, voltar e o menu de contexto funcionam de
+     graça. A aparência é copiada da regra de `button`, porque um `a` não a
+     herda. */
+  .botao-jogar {
+    @apply block w-full rounded-caixa px-[18px] py-[13px] text-center font-sans
+      text-sm/none font-semibold text-[#05170e] no-underline
+      bg-linear-to-b from-[#63e09c] to-chalk
+      hover:brightness-[1.08] hover:text-[#05170e];
+    transition: filter 0.15s ease;
+  }
+
+  /* Variante vazada, usada por botões de todas as telas — inclusive as que
+     ficaram fora desta migração. */
+  .ghost {
+    @apply border border-line bg-none bg-transparent text-text-dim;
+  }
+
+  /* Precisa do mesmo `:not(:disabled)` da regra de `button`, senão o
+     `brightness` dela vence esta por especificidade. */
+  .ghost:hover:not(:disabled) {
+    @apply border-chalk text-text filter-none;
+  }
+
+  /* -------------------------------------------------- seletor de modalidade */
+
+  /* O `select` nativo herda o tema claro do sistema no Windows e destoa de todo
+     o resto. `appearance: none` mais uma seta desenhada resolve sem depender de
+     como cada navegador pinta o controle. E a caixa acompanha a dos inputs
+     vizinhos: a linha de criar mesa precisa parecer uma coisa só, não três
+     controles avulsos. */
+  .select-modo {
+    @apply cursor-pointer appearance-none rounded-caixa border border-white/14
+      bg-white/6 py-3 pl-3.5 pr-[34px] font-sans text-sm/none font-medium text-inherit;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 18px) center, calc(100% - 13px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  /* As opções abrem no menu do sistema; ao menos o fundo acompanha. */
+  .select-modo option {
+    @apply bg-felt-900 text-text;
+  }
 }

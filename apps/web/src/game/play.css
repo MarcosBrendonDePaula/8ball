@@ -3,189 +3,69 @@
  *
  * Ocupa a janela inteira: numa mesa de sinuca, área de tela é precisão de
  * mira. Tudo o mais é acessório e fica compacto nas bordas.
+ *
+ * As classes daqui continuam existindo como componentes porque a mesa em
+ * hotseat (`game/main.ts`) monta o mesmo cabeçalho: são a interface comum das
+ * duas telas, não decoração de uma só.
  */
 
-body.play {
-  display: block;
-  padding: 0;
-  overflow: hidden;
-}
+/* Esta folha é um módulo CSS separado: sem o `@reference`, o `@apply` daqui não
+   enxergaria os tokens declarados no `@theme` da folha principal. */
+@reference '../styles.css';
 
-body.play #app {
-  max-width: none;
-  width: 100vw;
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-}
+@layer components {
+  body.play {
+    @apply block overflow-hidden p-0;
+  }
 
-.play-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 14px 18px 8px;
-}
+  body.play #app {
+    @apply grid h-dvh w-screen max-w-none;
+    grid-template-rows: auto auto 1fr;
+  }
 
-.play-modos {
-  display: flex;
-  gap: 6px;
-}
+  .play-header {
+    @apply flex flex-wrap items-center justify-between gap-3 px-[18px] pt-3.5 pb-2;
+  }
 
-.play-modos .modo {
-  width: auto;
-  padding: 8px 14px;
-  font-size: 12px;
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--line);
-}
+  .play-modos {
+    @apply flex gap-1.5;
+  }
 
-.play-modos .modo.ativo {
-  color: #05170e;
-  background: linear-gradient(180deg, #63e09c, var(--chalk));
-  border-color: transparent;
-}
+  .play-modos .modo {
+    @apply w-auto border border-line bg-none bg-transparent px-3.5 py-2
+      text-xs/none text-text-dim;
+  }
 
-.play-acoes {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+  .play-modos .modo.ativo {
+    @apply border-transparent bg-linear-to-b from-[#63e09c] to-chalk text-[#05170e];
+  }
 
-.play-acoes button,
-.play-acoes a {
-  width: auto;
-  padding: 8px 14px;
-  font: 600 12px/1 var(--font);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  color: var(--text-dim);
-  background: transparent;
-  text-decoration: none;
-  cursor: pointer;
-}
+  .play-acoes {
+    @apply flex items-center gap-2;
+  }
 
-.play-acoes button:hover,
-.play-acoes a:hover {
-  color: var(--text);
-  border-color: var(--chalk);
-}
+  .play-acoes button,
+  .play-acoes a {
+    @apply w-auto cursor-pointer rounded-caixa border border-line bg-none bg-transparent
+      px-3.5 py-2 font-sans text-xs/none font-semibold text-text-dim no-underline;
+  }
 
-.play-descricao {
-  margin: 0;
-  padding: 0 18px 10px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
+  .play-acoes button:hover,
+  .play-acoes a:hover {
+    @apply border-chalk text-text;
+  }
 
-.play-mesa {
-  min-height: 0;
-  padding: 0 18px 18px;
-}
+  .play-descricao {
+    @apply m-0 px-[18px] pb-2.5 text-[12px] text-text-dim;
+  }
 
-#mesa {
-  width: 100%;
-  height: 100%;
-  display: block;
-  /* Sem isso, arrastar na mesa seleciona texto e rola a página no celular. */
-  touch-action: none;
-  user-select: none;
-}
+  .play-mesa {
+    @apply min-h-0 px-[18px] pb-[18px];
+  }
 
-/* ---------------------------------------------------------- mesa em rede */
-
-.net-aviso,
-.net-erro,
-.net-fim,
-.net-decisao,
-.net-espera {
-  padding: 1rem 1.25rem;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.net-status {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.9;
-}
-
-.net-desistir {
-  margin-left: auto;
-  padding: 0.35rem 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.net-desistir:hover {
-  border-color: #e06c5b;
-  color: #e06c5b;
-}
-
-.net-painel {
-  display: flex;
-  justify-content: center;
-  padding: 0 1rem 1rem;
-}
-
-.net-vez {
-  display: flex;
-  gap: 1.25rem;
-  align-items: baseline;
-  font-variant-numeric: tabular-nums;
-}
-
-/* O relógio é o único elemento que muda de cor: é a informação que o jogador
-   precisa perceber sem estar olhando para ela. */
-#relogio {
-  font-size: 1.4rem;
-  font-weight: 600;
-}
-#relogio.urgente {
-  color: #e06c5b;
-}
-
-.net-decisao {
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.net-decisao button {
-  padding: 0.4rem 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.net-decisao button:hover {
-  border-color: #6fcf8b;
-  color: #6fcf8b;
-}
-
-.net-fim {
-  display: grid;
-  gap: 0.4rem;
-  text-align: center;
-}
-.net-fim.venceu strong {
-  color: #6fcf8b;
-}
-.net-fim.perdeu strong {
-  color: #e06c5b;
-}
-
-.net-erro strong {
-  color: #e0b95b;
-}
-
-/* O aviso de falha na liquidação precisa ser lido, mas não pode parecer que o
-   jogador perdeu o dinheiro — ele volta pelo contrato. */
-.net-erro-inline {
-  color: #e0b95b;
-  font-size: 0.9em;
+  #mesa {
+    /* Sem `touch-action: none`, arrastar na mesa seleciona texto e rola a
+       página no celular. */
+    @apply block size-full touch-none select-none;
+  }
 }
