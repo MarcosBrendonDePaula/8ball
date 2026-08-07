@@ -17,6 +17,7 @@
 //!   claim_timeout → referee sumiu; qualquer um devolve o dinheiro aos dois
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::hash::hash;
 use anchor_lang::system_program;
 
 declare_id!("4Y3qRV52756DJgJDzvj9z5et5LX4Wr1Jm9cVEK4sS3ht");
@@ -123,6 +124,7 @@ pub mod pool_escrow {
         match_id: [u8; 16],
         stake: u64,
         timeout_seconds: i64,
+        commit: [u8; 32],
     ) -> Result<()> {
         let config = &ctx.accounts.config;
         require!(!config.paused, EscrowError::Paused);
@@ -146,6 +148,7 @@ pub mod pool_escrow {
         game.deadline = now
             .checked_add(timeout_seconds)
             .ok_or(EscrowError::MathOverflow)?;
+        game.commit_creator = commit;
         game.bump = ctx.bumps.game;
 
         deposit(
@@ -157,7 +160,7 @@ pub mod pool_escrow {
     }
 
     /// Segundo jogador entra e deposita o mesmo valor.
-    pub fn join_match(ctx: Context<JoinMatch>) -> Result<()> {
+    pub fn join_match(ctx: Context<JoinMatch>, commit: [u8; 32]) -> Result<()> {
         require!(!ctx.accounts.config.paused, EscrowError::Paused);
 
         let now = Clock::get()?.unix_timestamp;
@@ -181,6 +184,7 @@ pub mod pool_escrow {
 
         let game = &mut ctx.accounts.game;
         game.opponent = ctx.accounts.opponent.key();
+        game.commit_opponent = commit;
         game.state = MatchState::Committed as u8;
 
         // O relógio da PARTIDA começa agora, com duração que o contrato define.
@@ -229,6 +233,8 @@ pub mod pool_escrow {
         winner: Pubkey,
         result_hash: [u8; 32],
         replay: Vec<u8>,
+        nonce_creator: [u8; 32],
+        nonce_opponent: [u8; 32],
     ) -> Result<()> {
         require!(replay.len() <= MAX_REPLAY_BYTES, EscrowError::ReplayTooLarge);
         let game = &ctx.accounts.game;
@@ -240,6 +246,19 @@ pub mod pool_escrow {
         require!(
             ctx.accounts.winner.key() == winner,
             EscrowError::WinnerAccountMismatch
+        );
+
+        // Os nonces têm de bater com os compromissos feitos ao depositar. É o
+        // que amarra o seed do replay a uma escolha que os DOIS jogadores
+        // fizeram antes de saber o resultado — sem isto o referee escolhia o
+        // seed e fabricava a partida inteira.
+        require!(
+            hash(&nonce_creator).to_bytes() == game.commit_creator,
+            EscrowError::BadReveal
+        );
+        require!(
+            hash(&nonce_opponent).to_bytes() == game.commit_opponent,
+            EscrowError::BadReveal
         );
 
         let pot = game
@@ -283,6 +302,9 @@ pub mod pool_escrow {
         record.match_id = match_id;
         record.winner = winner;
         record.loser = if winner == game.creator { game.opponent } else { game.creator };
+        record.creator = game.creator;
+        record.nonce_creator = nonce_creator;
+        record.nonce_opponent = nonce_opponent;
         record.pot = pot;
         record.settled_at = Clock::get()?.unix_timestamp;
         record.result_hash = result_hash;
@@ -702,11 +724,26 @@ pub struct Game {
     pub state: u8,
     pub created_at: i64,
     pub deadline: i64,
+    /**
+     * Compromissos com os nonces que definem a quebra.
+     *
+     * Cada jogador escolhe 32 bytes em segredo e publica só o hash — AQUI, ao
+     * depositar, antes de saber o do adversário. O seed da partida é
+     * `sha256(nonce_criador ‖ nonce_oponente)`, e `settle_match` só aceita
+     * nonces que batam com estes compromissos.
+     *
+     * Sem isso, nada on-chain amarrava o seed do replay a coisa nenhuma: o
+     * referee escolhia o seed que quisesse e fabricava uma partida inteira que
+     * nunca aconteceu, com o vencedor que quisesse. Foi demonstrado em duas
+     * tentativas de busca aleatória.
+     */
+    pub commit_creator: [u8; 32],
+    pub commit_opponent: [u8; 32],
     pub bump: u8,
 }
 
 impl Game {
-    pub const LEN: usize = 8 + 16 + 32 * 2 + 8 + 1 + 8 * 2 + 1;
+    pub const LEN: usize = 8 + 16 + 32 * 2 + 8 + 1 + 8 * 2 + 32 * 2 + 1;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -813,11 +850,11 @@ pub struct SettleMatch<'info> {
     #[account(
         init,
         payer = referee,
-        space = MatchRecord::space(replay.len()),
+        space = MatchRecordV2::space(replay.len()),
         seeds = [b"replay", game.match_id.as_ref()],
         bump
     )]
-    pub record: Account<'info, MatchRecord>,
+    pub record: Account<'info, MatchRecordV2>,
     pub system_program: Program<'info, System>,
 }
 
@@ -873,22 +910,42 @@ pub enum VaultKind {
  * sem depender de nenhum serviço nosso.
  */
 #[account]
-pub struct MatchRecord {
+pub struct MatchRecordV2 {
     pub match_id: [u8; 16],
     pub winner: Pubkey,
     pub loser: Pubkey,
+    /**
+     * Quem criou a mesa — o JOGADOR 0 do replay.
+     *
+     * Sem este campo o replay era inauditável no ponto que mais importa: ele
+     * chama os jogadores de 0 e 1, o registro guardava só vencedor e perdedor,
+     * e a conta `Game` (que tinha o criador) é fechada na liquidação. Ninguém
+     * conseguia ligar o vencedor do replay a uma carteira — então um referee
+     * comprometido pagava o perdedor e a auditoria dizia "confere".
+     */
+    pub creator: Pubkey,
     pub pot: u64,
     pub settled_at: i64,
     /// SHA-256 dos bytes do replay.
     pub result_hash: [u8; 32],
+    /**
+     * Os nonces revelados, que geraram o seed da quebra.
+     *
+     * Ficam aqui para a auditoria ser completa sem depender da conta `Game`,
+     * que é fechada: qualquer pessoa confere que
+     * `seed == sha256(nonce_creator ‖ nonce_opponent)` e que cada nonce bate
+     * com o compromisso que o contrato validou na liquidação.
+     */
+    pub nonce_creator: [u8; 32],
+    pub nonce_opponent: [u8; 32],
     /// O replay em si: seed, tacos e todas as tacadas.
     pub replay: Vec<u8>,
     pub bump: u8,
 }
 
-impl MatchRecord {
+impl MatchRecordV2 {
     /// Tamanho sem o replay. O `+ 4` é o prefixo de comprimento do `Vec`.
-    pub const BASE_LEN: usize = 8 + 16 + 32 + 32 + 8 + 8 + 32 + 4 + 1;
+    pub const BASE_LEN: usize = 8 + 16 + 32 * 3 + 8 + 8 + 32 + 32 * 2 + 4 + 1;
 
     pub fn space(replay_len: usize) -> usize {
         Self::BASE_LEN + replay_len
@@ -1107,6 +1164,8 @@ pub enum EscrowError {
     NotCancellable,
     #[msg("Esta partida não está em estado de liquidação.")]
     NotSettleable,
+    #[msg("O nonce revelado não corresponde ao compromisso feito no depósito.")]
+    BadReveal,
     #[msg("O vencedor não é um dos jogadores desta partida.")]
     WinnerNotInMatch,
     #[msg("A conta do vencedor não confere com o vencedor declarado.")]

@@ -136,11 +136,22 @@ export function initializeIx(params: {
   })
 }
 
+/**
+ * Compromisso com um nonce: o hash dele.
+ *
+ * O jogador sorteia 32 bytes em segredo e publica só isto, AO DEPOSITAR — antes
+ * de saber o do adversário. O seed da partida sai dos dois nonces juntos, e o
+ * contrato só liquida com nonces que batam com os compromissos.
+ */
+export const commitOf = (nonce: Uint8Array): Uint8Array => sha256(nonce)
+
 export function createMatchIx(params: {
   creator: PublicKey
   matchId: Uint8Array
   stake: bigint
   timeoutSeconds: bigint
+  /** Hash do nonce que este jogador guardou para a quebra. */
+  commit: Uint8Array
 }): TransactionInstruction {
   const [config] = configPda()
   const [game] = matchPda(params.matchId)
@@ -158,6 +169,7 @@ export function createMatchIx(params: {
         params.matchId,
         u64(params.stake),
         i64(params.timeoutSeconds),
+        params.commit,
       ),
     ),
   })
@@ -166,6 +178,8 @@ export function createMatchIx(params: {
 export function joinMatchIx(params: {
   opponent: PublicKey
   matchId: Uint8Array
+  /** Hash do nonce que este jogador guardou para a quebra. */
+  commit: Uint8Array
 }): TransactionInstruction {
   const [config] = configPda()
   const [game] = matchPda(params.matchId)
@@ -177,7 +191,7 @@ export function joinMatchIx(params: {
       { pubkey: game, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(ixDiscriminator('join_match')),
+    data: Buffer.from(concat(ixDiscriminator('join_match'), params.commit)),
   })
 }
 
@@ -311,6 +325,9 @@ export function settleMatchIx(params: {
   resultHash: Uint8Array
   /** Bytes do replay. Ficam gravados on-chain, para sempre. */
   replay: Uint8Array
+  /** Os nonces revelados. O contrato confere contra os compromissos. */
+  nonceCreator: Uint8Array
+  nonceOpponent: Uint8Array
 }): TransactionInstruction {
   if (params.resultHash.length !== 32) throw new Error('result_hash deve ter 32 bytes.')
   const [config] = configPda()
@@ -343,6 +360,8 @@ export function settleMatchIx(params: {
         params.resultHash,
         tamanho,
         params.replay,
+        params.nonceCreator,
+        params.nonceOpponent,
       ),
     ),
   })
@@ -352,12 +371,32 @@ export type MatchRecord = {
   matchId: Uint8Array
   winner: PublicKey
   loser: PublicKey
+  /** Quem criou a mesa — é o JOGADOR 0 do replay. */
+  creator: PublicKey
   pot: bigint
   settledAt: number
   resultHash: Uint8Array
+  /** Os nonces que geraram o seed da quebra. */
+  nonceCreator: Uint8Array
+  nonceOpponent: Uint8Array
   /** Bytes do replay, prontos para `decodeReplay`. */
   replay: Uint8Array
 }
+
+/**
+ * O vencedor declarado bate com o que o replay diz?
+ *
+ * É a checagem que faltava, e a que mais importa: sem o criador gravado, o
+ * índice 0/1 do replay não se ligava a carteira nenhuma, e um referee
+ * comprometido pagava o perdedor com a auditoria dizendo "confere".
+ */
+export function winnerMatchesReplay(record: MatchRecord, replayWinner: 0 | 1): boolean {
+  const esperado = replayWinner === 0 ? record.creator : outroJogador(record)
+  return record.winner.equals(esperado)
+}
+
+const outroJogador = (r: MatchRecord): PublicKey =>
+  r.winner.equals(r.creator) ? r.loser : r.winner
 
 /**
  * Lê o registro permanente de uma partida.
@@ -377,7 +416,12 @@ const RECORD_OFFSET = {
   loser: 56,
 } as const
 
-/** Decodifica os bytes de um `MatchRecord` já lido. */
+/**
+ * Decodifica os bytes de um registro de partida.
+ *
+ * Só o layout v2. Os registros antigos têm outro discriminador de conta, então
+ * a distinção é feita pelo filtro do RPC — não há como confundir os dois.
+ */
 export function decodeMatchRecord(data: Uint8Array): MatchRecord {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   let offset = 8
@@ -388,17 +432,34 @@ export function decodeMatchRecord(data: Uint8Array): MatchRecord {
   offset += 32
   const loser = new PublicKey(data.subarray(offset, offset + 32))
   offset += 32
+  const creator = new PublicKey(data.subarray(offset, offset + 32))
+  offset += 32
   const pot = view.getBigUint64(offset, true)
   offset += 8
   const settledAt = Number(view.getBigInt64(offset, true))
   offset += 8
   const resultHash = data.slice(offset, offset + 32)
   offset += 32
+  const nonceCreator = data.slice(offset, offset + 32)
+  offset += 32
+  const nonceOpponent = data.slice(offset, offset + 32)
+  offset += 32
   const tamanho = view.getUint32(offset, true)
   offset += 4
   const replay = data.slice(offset, offset + tamanho)
 
-  return { matchId: id, winner, loser, pot, settledAt, resultHash, replay }
+  return {
+    matchId: id,
+    winner,
+    loser,
+    creator,
+    pot,
+    settledAt,
+    resultHash,
+    nonceCreator,
+    nonceOpponent,
+    replay,
+  }
 }
 
 /**
@@ -420,7 +481,7 @@ export async function fetchPlayerHistory(
   // no offset 24 também casa com contas `Game`, onde o CRIADOR fica no mesmo
   // deslocamento — e decodificá-las como registro estoura o buffer.
   const daClasse = {
-    memcmp: { offset: 0, bytes: bs58.encode(accountDiscriminator('MatchRecord')) },
+    memcmp: { offset: 0, bytes: bs58.encode(accountDiscriminator('MatchRecordV2')) },
   }
 
   const porCampo = async (offset: number) =>
@@ -450,28 +511,9 @@ export async function fetchMatchRecord(
   const info = await connection.getAccountInfo(pda, 'confirmed')
   if (!info) return null
 
-  const data = new Uint8Array(info.data)
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  let offset = 8
-
-  const id = data.slice(offset, offset + 16)
-  offset += 16
-  const winner = new PublicKey(data.subarray(offset, offset + 32))
-  offset += 32
-  const loser = new PublicKey(data.subarray(offset, offset + 32))
-  offset += 32
-  const pot = view.getBigUint64(offset, true)
-  offset += 8
-  const settledAt = Number(view.getBigInt64(offset, true))
-  offset += 8
-  const resultHash = data.slice(offset, offset + 32)
-  offset += 32
-  const tamanho = view.getUint32(offset, true)
-  offset += 4
-  const replay = data.slice(offset, offset + tamanho)
-
-  return { matchId: id, winner, loser, pot, settledAt, resultHash, replay }
+  return decodeMatchRecord(new Uint8Array(info.data))
 }
+
 
 export function claimTimeoutIx(params: {
   caller: PublicKey

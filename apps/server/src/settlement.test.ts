@@ -17,10 +17,16 @@ const MATCH = 'ab'.repeat(16)
 
 const replay = Uint8Array.from({ length: 63 }, (_, i) => i)
 
+const nonces: [Uint8Array, Uint8Array] = [
+  Uint8Array.from({ length: 32 }, (_, i) => i),
+  Uint8Array.from({ length: 32 }, (_, i) => 255 - i),
+]
+
 const fim = (over: Partial<MatchEnded> = {}): MatchEnded => ({
   winner: 0,
   reason: 'regras',
   replay,
+  nonces,
   ...over,
 })
 
@@ -176,5 +182,43 @@ describe('quando a chain recusa', () => {
     expect(r.ok).toBe(false)
     expect((r as { retriable: boolean }).retriable).toBe(false)
     expect(n).toBe(1)
+  })
+})
+
+describe('sem revelação não há liquidação', () => {
+  test('partida sem nonces vai para reembolso', async () => {
+    // O contrato recusaria de qualquer forma — e é bom que recuse: são os
+    // nonces que provam que o seed veio de uma escolha dos dois jogadores,
+    // feita antes de qualquer um saber o resultado.
+    let chamou = false
+    const r = await settleMatch(
+      deps(async () => {
+        chamou = true
+        return 'sig'
+      }),
+      MATCH,
+      [A, B],
+      fim({ nonces: null }),
+    )
+
+    expect(r.ok).toBe(false)
+    expect(chamou).toBe(false)
+  })
+
+  test('os nonces vão na instrução, na ordem dos jogadores', async () => {
+    let ix: TransactionInstruction | null = null
+    await settleMatch(
+      deps(async (i) => {
+        ix = i
+        return 'sig'
+      }),
+      MATCH,
+      [A, B],
+      fim(),
+    )
+
+    const dados = Buffer.from(ix!.data).toString('hex')
+    expect(dados).toContain(Buffer.from(nonces[0]).toString('hex'))
+    expect(dados).toContain(Buffer.from(nonces[1]).toString('hex'))
   })
 })

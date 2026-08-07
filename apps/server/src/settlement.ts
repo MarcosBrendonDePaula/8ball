@@ -62,6 +62,12 @@ export async function settleMatch(
   players: readonly [string, string],
   result: MatchEnded,
 ): Promise<SettleOutcome> {
+  if (!result.nonces) {
+    // Sem os nonces o contrato recusa a liquidação — e é bom que recuse: são
+    // eles que provam que o seed veio de uma escolha dos dois jogadores.
+    return { ok: false, reason: 'partida sem revelação; será reembolsada', retriable: false }
+  }
+
   if (result.winner === null) {
     // Empate técnico não tem como ser liquidado: o contrato paga UM vencedor.
     // O caminho certo é o reembolso, que o varredor faz depois do prazo.
@@ -91,6 +97,8 @@ export async function settleMatch(
     // registro gravado: trocar o replay depois muda o hash e a fraude aparece.
     resultHash: sha256(result.replay),
     replay: result.replay,
+    nonceCreator: result.nonces[0],
+    nonceOpponent: result.nonces[1],
   })
 
   const enviar = deps.send ?? envioPadrao(deps)

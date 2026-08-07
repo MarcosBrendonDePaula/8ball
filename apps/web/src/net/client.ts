@@ -2,6 +2,7 @@ import { connection } from '@/wallet/balances'
 import type { PhantomWallet } from '@/wallet/phantom'
 import {
   cancelMatchIx,
+  commitOf,
   createMatchIx,
   joinMatchIx,
   readBalance,
@@ -106,15 +107,30 @@ export class GameClient {
   // -------------------------------------------------------------- partida
 
   /**
-   * Compromisso com o nonce da quebra.
+   * Nonce da quebra, sorteado e guardado antes do depósito.
    *
-   * O nonce é GUARDADO no navegador, indexado pela partida. Isso não é cache:
-   * o compromisso acontece numa página e a revelação em outra, depois de o
-   * jogador navegar do lobby para a mesa. Sem persistir, a navegação geraria
-   * um nonce novo, o servidor manteria o compromisso antigo, e a revelação
-   * falharia — a partida travaria até o prazo e viraria reembolso.
+   * O compromisso vai ON-CHAIN junto do depósito, e é o contrato que confere a
+   * revelação na liquidação. Foi essa amarra que passou a impedir o servidor de
+   * escolher o seed e fabricar uma partida que nunca aconteceu.
    *
-   * Reusa o nonce se já houver um para esta partida, pelo mesmo motivo.
+   * Guardar no navegador não é cache: o compromisso acontece ao depositar e a
+   * revelação depois, noutra página. Sem persistir, a navegação geraria um
+   * nonce novo e a liquidação seria recusada pelo contrato.
+   */
+  nonceParaPartida(matchId: string): Uint8Array {
+    const guardado = localStorage.getItem(nonceKey(matchId))
+    if (guardado) return fromHex(guardado)
+
+    const nonce = crypto.getRandomValues(new Uint8Array(32))
+    localStorage.setItem(nonceKey(matchId), toHex(nonce))
+    return nonce
+  }
+
+  /**
+   * Compromisso com o nonce da quebra, pelo WebSocket.
+   *
+   * Duplica o que já foi para a chain: o servidor precisa dele para montar a
+   * partida sem ter de ler a conta. O que VALE é o on-chain.
    */
   commitBreak(matchId: string): void {
     const guardado = localStorage.getItem(nonceKey(matchId))
@@ -367,12 +383,17 @@ export class GameClient {
     try {
       const required = await this.#requestDeposit({ t: 'lobby.reserve', stake, label, mode })
 
+      // O compromisso com a quebra vai JUNTO do depósito, antes de saber quem
+      // é o adversário. É o que impede o servidor de escolher o seed depois.
+      const nonce = this.nonceParaPartida(required.matchId)
+
       await this.#signAndSend(
         createMatchIx({
           creator: publicKey,
           matchId: unhex(required.matchId),
           stake: BigInt(required.stake),
           timeoutSeconds: BigInt(required.timeoutSeconds),
+          commit: commitOf(nonce),
         }),
         publicKey,
       )
@@ -393,7 +414,12 @@ export class GameClient {
       const required = await this.#requestDeposit({ t: 'lobby.requestJoin', roomId })
 
       await this.#signAndSend(
-        joinMatchIx({ opponent: publicKey, matchId: unhex(required.matchId) }),
+        joinMatchIx({
+          opponent: publicKey,
+          matchId: unhex(required.matchId),
+          // Mesmo compromisso do criador, na hora do próprio depósito.
+          commit: commitOf(this.nonceParaPartida(required.matchId)),
+        }),
         publicKey,
       )
 

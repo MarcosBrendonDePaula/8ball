@@ -1,6 +1,7 @@
 import { explorerAddressUrl } from '@/config'
 import { connection } from '@/wallet/balances'
-import { fetchPlayerHistory } from '@zinc-pool/chain-client'
+import { fetchPlayerHistory, winnerMatchesReplay } from '@zinc-pool/chain-client'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { decodeReplay, verifyReplay } from '@zinc-pool/replay'
 import { PublicKey } from '@solana/web3.js'
 import { formatAmount } from '@zinc-pool/protocol'
@@ -56,21 +57,22 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
      * Reproduzir custa alguns milissegundos por partida e é a única coisa aqui
      * que o jogador não obteria olhando o explorer.
      *
-     * DUAS checagens, e só duas — porque só duas são possíveis hoje:
+     * QUATRO checagens, e agora elas cobrem a promessa inteira:
      *
-     *   1. o hash dos bytes bate com o `result_hash` gravado, o que prova que
-     *      o replay não foi trocado depois da liquidação
-     *   2. o replay reproduz até um vencedor, o que prova que é uma partida
-     *      completa e válida
+     *   1. o hash dos bytes bate com o `result_hash` gravado — o replay não foi
+     *      trocado depois da liquidação
+     *   2. o seed veio dos nonces gravados — não foi escolhido pelo servidor
+     *   3. o replay reproduz até um vencedor — é uma partida completa
+     *   4. esse vencedor é a CARTEIRA que recebeu — o jogador 0 é o criador,
+     *      e o criador está gravado
      *
-     * O que NÃO dá para conferir daqui é a identidade do vencedor. O replay
-     * chama os jogadores de 0 e 1; o `MatchRecord` guarda as carteiras do
-     * vencedor e do perdedor, mas não em qual slot cada uma jogou. Ligar os
-     * dois exige o criador gravado na conta, que hoje não está lá.
+     * A quarta era impossível até o registro passar a guardar o criador: o
+     * replay chama os jogadores de 0 e 1, e sem essa ligação um referee
+     * comprometido pagava o perdedor com a auditoria dizendo "confere".
      *
-     * A versão anterior deste código FINGIA fazer essa ligação, chutando que o
-     * jogador era o slot 0 quando vencia — e acusava divergência em partidas
-     * legítimas.
+     * A segunda era impossível até os nonces irem para a chain: sem elas, nada
+     * amarrava o seed a coisa nenhuma, e o servidor fabricava uma partida
+     * inteira que nunca aconteceu.
      */
     try {
       const conferido = verifyReplay(decodeReplay(r.replay))
@@ -88,6 +90,24 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
           ...base,
           verificado: 'erro' as const,
           motivo: 'o replay não chega a um vencedor',
+        }
+      }
+
+      // O seed tem de ser o hash dos dois nonces gravados na liquidação.
+      const esperado = sha256(concat(r.nonceCreator, r.nonceOpponent))
+      if (!mesmosBytes(esperado, decodeReplay(r.replay).seed)) {
+        return {
+          ...base,
+          verificado: 'divergiu' as const,
+          motivo: 'o seed da quebra não veio dos nonces gravados',
+        }
+      }
+
+      if (!winnerMatchesReplay(r, conferido.winner)) {
+        return {
+          ...base,
+          verificado: 'divergiu' as const,
+          motivo: 'quem recebeu o pote não é quem o replay diz que venceu',
         }
       }
 
@@ -173,6 +193,13 @@ function explicar(err: unknown): string {
     return 'Gravada com uma versão anterior da física. Continua auditável com a engine daquela época.'
   }
   return texto.slice(0, 120)
+}
+
+const concat = (a: Uint8Array, b: Uint8Array): Uint8Array => {
+  const fora = new Uint8Array(a.length + b.length)
+  fora.set(a)
+  fora.set(b, a.length)
+  return fora
 }
 
 const mesmosBytes = (a: Uint8Array, b: Uint8Array): boolean =>

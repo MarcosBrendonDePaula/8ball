@@ -88,8 +88,13 @@ export const SHOT_SIZE = 5
  * Medido contra `settleMatchIx` real, não deduzido. Se a instrução ganhar mais
  * uma conta, este número cai — e o teste que o compara com `MAX_REPLAY_BYTES`
  * é o que avisa.
+ *
+ * Caiu de 721 para 657 quando os dois nonces do commit-reveal passaram a viajar
+ * na liquidação. São 64 bytes que compram o que o replay sozinho não provava:
+ * que o seed veio de uma escolha feita pelos DOIS jogadores antes de saberem o
+ * resultado.
  */
-export const TX_REPLAY_BUDGET = 721
+export const TX_REPLAY_BUDGET = 657
 
 /** Cada posicionamento: x u16, y u16, sobre as dimensões da mesa. */
 export const PLACEMENT_SIZE = 4
@@ -131,7 +136,7 @@ export const MAX_CALLS = 8
  * em silêncio: um replay truncado verifica sem reclamar e aponta o vencedor
  * errado — o pior desfecho possível para uma auditoria.
  */
-export const MAX_SHOTS = 80
+export const MAX_SHOTS = 72
 
 /**
  * Teto de decisões por replay.

@@ -151,6 +151,8 @@ export type MatchEnded = {
   reason: MatchEndReason
   /** Bytes do replay, prontos para a liquidação on-chain. */
   replay: Uint8Array
+  /** Os nonces revelados, que o contrato confere contra os compromissos. */
+  nonces: [Uint8Array, Uint8Array] | null
 }
 
 /**
@@ -633,7 +635,20 @@ export class Match {
       winner: this.endReason === 'regras' ? porRegras : this.#winnerOverride,
       reason: this.endReason ?? 'regras',
       replay: this.recorder?.toBytes() ?? new Uint8Array(0),
+      nonces: this.revealedNonces(),
     }
+  }
+
+  /**
+   * Os nonces revelados, na ordem dos jogadores.
+   *
+   * Vão para a liquidação: o contrato confere cada um contra o compromisso que
+   * o jogador gravou ao depositar. Sem isso o `settle_match` é recusado — e é
+   * essa recusa que impede o servidor de inventar o seed.
+   */
+  revealedNonces(): [Uint8Array, Uint8Array] | null {
+    const [a, b] = this.#nonces
+    return a && b ? [a, b] : null
   }
 
   /** Há quanto tempo a partida existe, para métricas e para o painel. */

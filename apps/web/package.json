@@ -18,7 +18,8 @@
     "buffer": "^6.0.3",
     "@zinc-pool/engine-physics": "workspace:*",
     "@zinc-pool/engine-rules": "workspace:*",
-    "@zinc-pool/replay": "workspace:*"
+    "@zinc-pool/replay": "workspace:*",
+    "@noble/hashes": "^2.3.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

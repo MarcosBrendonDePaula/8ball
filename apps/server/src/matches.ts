@@ -324,7 +324,7 @@ export class Matches {
       t: 'end',
       matchId,
       players,
-      result: { winner: null, reason: 'tempo', replay: new Uint8Array(0) },
+      result: { winner: null, reason: 'tempo', replay: new Uint8Array(0), nonces: null },
     })
   }
 

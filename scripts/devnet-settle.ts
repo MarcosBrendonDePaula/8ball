@@ -23,6 +23,7 @@ import {
 import {
   burnTreasuryIx,
   cancelMatchIx,
+  commitOf,
   createMatchIx,
   fetchConfig,
   fetchVault,
@@ -44,6 +45,11 @@ const load = (path: string): Keypair =>
 
 const payer = load(process.argv[2] ?? '')
 const referee = load('keypairs/referee.json')
+
+// O seed da quebra vem do commit-reveal: cada jogador se compromete com um
+// nonce AO DEPOSITAR, e o contrato só liquida com nonces que batam.
+const nonceA = Uint8Array.from({ length: 32 }, (_, i) => (i * 13 + 1) % 256)
+const nonceB = Uint8Array.from({ length: 32 }, (_, i) => (i * 29 + 7) % 256)
 
 const sol = (n: bigint | number) => (Number(n) / LAMPORTS_PER_SOL).toFixed(6)
 const balance = async (k: PublicKey) => readBalance(connection, k)
@@ -89,10 +95,16 @@ const [gamePda] = matchPda(matchId)
 
 console.log(`2) mesa de ${sol(STAKE)} SOL — os dois depositam`)
 await send(
-  [createMatchIx({ creator: alice.publicKey, matchId, stake: STAKE, timeoutSeconds: 3600n })],
+  [createMatchIx({
+      creator: alice.publicKey,
+      matchId,
+      stake: STAKE,
+      timeoutSeconds: 3600n,
+      commit: commitOf(nonceA),
+    })],
   [alice],
 )
-await send([joinMatchIx({ opponent: bob.publicKey, matchId })], [bob])
+await send([joinMatchIx({ opponent: bob.publicKey, matchId, commit: commitOf(nonceB) })], [bob])
 console.log(`   escrow segura ${sol(await balance(gamePda))} SOL\n`)
 
 // ------------------------------------------------------------ liquidação
@@ -120,6 +132,8 @@ try {
         winner: impostor.publicKey,
         resultHash: new Uint8Array(32),
         replay: new Uint8Array(0),
+        nonceCreator: nonceA,
+        nonceOpponent: nonceB,
       }),
     ],
     [impostor],
@@ -159,6 +173,8 @@ await send(
       // Este script exercita só o fluxo do dinheiro; a gravação do replay tem
       // o seu próprio, em `bun run replay`.
       replay: new Uint8Array(0),
+      nonceCreator: nonceA,
+      nonceOpponent: nonceB,
     }),
   ],
   [referee],
@@ -216,7 +232,15 @@ console.log('\n6) create_match + cancel_match — devolução integral')
 const matchId2 = matchIdFromUuid(randomUUID())
 const antesCriar = await balance(bob.publicKey)
 await send(
-  [createMatchIx({ creator: bob.publicKey, matchId: matchId2, stake: STAKE, timeoutSeconds: 3600n })],
+  [
+    createMatchIx({
+      creator: bob.publicKey,
+      matchId: matchId2,
+      stake: STAKE,
+      timeoutSeconds: 3600n,
+      commit: commitOf(nonceB),
+    }),
+  ],
   [bob],
 )
 const depoisCriar = await readBalance(connection, bob.publicKey, { from: antesCriar })

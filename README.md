@@ -9,7 +9,7 @@ qualquer pessoa, para sempre.
 | Program ID | `4Y3qRV52756DJgJDzvj9z5et5LX4Wr1Jm9cVEK4sS3ht` |
 | Rede | devnet |
 | Física | v1 · digest `1751bd8c` |
-| Testes | 503 |
+| Testes | 502 |
 
 ## Rodar
 
@@ -55,8 +55,19 @@ tacada e as escolhas que o jogador fez. Esses bytes ficam **gravados on-chain**
 junto da liquidação.
 
 Como a física é determinística, qualquer pessoa reproduz a partida a partir
-deles e confere se o vencedor declarado é o correto. Se o servidor mentir, a
-mentira é detectável — por qualquer um, para sempre.
+deles e confere se o vencedor declarado é o correto. Quatro amarras sustentam
+isso, e as duas últimas foram acrescentadas depois de uma auditoria adversarial
+mostrar que sem elas a promessa não se sustentava:
+
+| Amarra | O que ela impede |
+|---|---|
+| `result_hash` on-chain | trocar o replay depois da liquidação |
+| **nonces gravados** | o servidor **escolher o seed** e fabricar a partida |
+| a física reproduz | inventar um resultado que a simulação não dá |
+| **criador gravado** | pagar o **perdedor** com a auditoria dizendo "confere" |
+
+Sem as duas em negrito, tudo que o replay provava era "existe uma partida
+coerente com estes bytes" — não que foi *aquela* partida, nem quem ganhou.
 
 Para que isso sobreviva ao desaparecimento deste repositório,
 [`docs/PHYSICS-SPEC.md`](docs/PHYSICS-SPEC.md) descreve a simulação em detalhe

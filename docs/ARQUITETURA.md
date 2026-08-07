@@ -585,7 +585,7 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**503 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**502 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 

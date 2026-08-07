@@ -23,6 +23,7 @@ import {
   sendAndConfirmTransaction,
 } from '@solana/web3.js'
 import {
+  commitOf,
   createMatchIx,
   fetchMatchRecord,
   joinMatchIx,
@@ -51,6 +52,11 @@ const load = (path: string): Keypair =>
 
 const payer = load(process.argv[2] ?? '')
 const referee = load('keypairs/referee.json')
+
+// O seed da quebra vem do commit-reveal: cada jogador se compromete com um
+// nonce AO DEPOSITAR, e o contrato só liquida com nonces que batam.
+const nonceA = Uint8Array.from({ length: 32 }, (_, i) => (i * 13 + 1) % 256)
+const nonceB = Uint8Array.from({ length: 32 }, (_, i) => (i * 29 + 7) % 256)
 
 const sol = (n: bigint | number) => (Number(n) / LAMPORTS_PER_SOL).toFixed(6)
 
@@ -136,10 +142,16 @@ const STAKE = BigInt(0.01 * LAMPORTS_PER_SOL)
 const matchId = matchIdFromUuid(randomUUID())
 
 await send(
-  [createMatchIx({ creator: alice.publicKey, matchId, stake: STAKE, timeoutSeconds: 3600n })],
+  [createMatchIx({
+      creator: alice.publicKey,
+      matchId,
+      stake: STAKE,
+      timeoutSeconds: 3600n,
+      commit: commitOf(nonceA),
+    })],
   [alice],
 )
-await send([joinMatchIx({ opponent: bob.publicKey, matchId })], [bob])
+await send([joinMatchIx({ opponent: bob.publicKey, matchId, commit: commitOf(nonceB) })], [bob])
 
 console.log(`   mesa ${sol(STAKE)} SOL, dois depósitos confirmados`)
 
@@ -158,6 +170,8 @@ const assinatura = await send(
       winner: vencedor,
       resultHash: verificacao.replayHash,
       replay: bytes,
+      nonceCreator: nonceA,
+      nonceOpponent: nonceB,
     }),
   ],
   [referee],
