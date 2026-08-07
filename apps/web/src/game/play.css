@@ -182,3 +182,10 @@ body.play #app {
 .net-erro strong {
   color: #e0b95b;
 }
+
+/* O aviso de falha na liquidação precisa ser lido, mas não pode parecer que o
+   jogador perdeu o dinheiro — ele volta pelo contrato. */
+.net-erro-inline {
+  color: #e0b95b;
+  font-size: 0.9em;
+}

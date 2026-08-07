@@ -340,6 +340,21 @@ export const ServerMessage = z.discriminatedUnion('t', [
     replay: z.string(),
   }),
 
+  /**
+   * A liquidação foi para a blockchain.
+   *
+   * Chega DEPOIS do `match.end` porque a transação leva alguns segundos e o
+   * jogador não deve ficar olhando uma tela parada até ela confirmar. Traz a
+   * assinatura para ele conferir o pagamento no explorer — é o ponto de o
+   * escrow ser on-chain.
+   */
+  z.object({
+    t: z.literal('match.settled'),
+    signature: z.string().nullable(),
+    /** Motivo, quando não deu para liquidar. */
+    reason: z.string().nullable(),
+  }),
+
   z.object({ t: z.literal('error'), code: ErrorCode, message: z.string() }),
   z.object({ t: z.literal('pong') }),
 ])

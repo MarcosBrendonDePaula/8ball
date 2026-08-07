@@ -6,6 +6,7 @@ import { createPoolScene, type PoolSceneHandle } from './PoolScene'
 import { connectMatch, type NetMatchState } from './NetworkedMatch'
 import { GameClient } from '@/net/client'
 import { PhantomWallet, getProvider } from '@/wallet/phantom'
+import { explorerTxUrl } from '@/config'
 import { GAME_MODE_INFO } from '@zinc-pool/engine-rules'
 
 /**
@@ -136,11 +137,7 @@ function montarPainel(s: NetMatchState): string {
     return `<div class="net-fim ${venceu ? 'venceu' : 'perdeu'}">
       <strong>${venceu ? 'Você venceu' : s.resultado.winner === null ? 'Partida anulada' : 'Você perdeu'}</strong>
       <span>por ${s.resultado.reason}</span>
-      <p>${
-        s.resultado.winner === null
-          ? 'As entradas voltam para os dois pelo contrato.'
-          : 'O pagamento e o replay vão para a blockchain automaticamente.'
-      }</p>
+      ${liquidacao(s)}
       <a href="/">Voltar ao lobby</a>
     </div>`
   }
@@ -194,3 +191,31 @@ const CACAPAS = [
   'Superior meio',
   'Superior direita',
 ]
+
+/**
+ * Estado da liquidação, com o link para conferir.
+ *
+ * "Vai para a blockchain automaticamente" é uma promessa que o jogador não tem
+ * como verificar sozinho. Com a assinatura, ele confere o pagamento no
+ * explorer sem depender da nossa palavra — que é o ponto do escrow on-chain.
+ */
+function liquidacao(s: NetMatchState): string {
+  if (s.resultado?.winner === null) {
+    return `<p>As entradas voltam para os dois pelo contrato.</p>`
+  }
+
+  if (!s.liquidacao) {
+    return `<p><span class="spinner"></span>Enviando o pagamento e o replay para a blockchain…</p>`
+  }
+
+  if (s.liquidacao.signature) {
+    return `<p>Pagamento e replay gravados.
+      <a href="${explorerTxUrl(s.liquidacao.signature)}" target="_blank" rel="noopener">
+        ver a transação ↗
+      </a></p>`
+  }
+
+  return `<p class="net-erro-inline">Não foi possível liquidar agora
+    (${s.liquidacao.reason ?? 'motivo desconhecido'}).
+    As entradas voltam pelo prazo do contrato.</p>`
+}

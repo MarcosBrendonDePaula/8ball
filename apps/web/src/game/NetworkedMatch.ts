@@ -42,6 +42,8 @@ export type NetMatchState = {
   callRequired: boolean
   opponentOffline: boolean
   resultado: { winner: 0 | 1 | null; reason: string } | null
+  /** Assinatura da liquidação, quando ela chega. */
+  liquidacao: { signature: string | null; reason: string | null } | null
   /** Divergência entre a nossa mesa e a do servidor. */
   desync: string | null
   mensagem: string | null
@@ -59,6 +61,7 @@ const INICIAL: NetMatchState = {
   callRequired: false,
   opponentOffline: false,
   resultado: null,
+  liquidacao: null,
   desync: null,
   mensagem: null,
 }
@@ -194,6 +197,10 @@ export function connectMatch(
 
       case 'match.opponentOnline':
         patch({ opponentOffline: false, mensagem: 'Adversário voltou.' })
+        break
+
+      case 'match.settled':
+        patch({ liquidacao: { signature: msg.signature, reason: msg.reason } })
         break
 
       case 'match.end':

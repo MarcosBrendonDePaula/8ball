@@ -31,3 +31,15 @@ export function explorerAddressUrl(address: string): string {
   const suffix = CLUSTER === 'mainnet-beta' ? '' : `?cluster=${CLUSTER}`
   return `https://solscan.io/account/${address}${suffix}`
 }
+
+/**
+ * Link para uma transação no explorer.
+ *
+ * O jogador precisa poder conferir o pagamento por fora do nosso site — é o
+ * ponto do escrow on-chain. Mandá-lo procurar a carteira e caçar a transação
+ * anularia boa parte disso.
+ */
+export function explorerTxUrl(signature: string): string {
+  const suffix = CLUSTER === 'mainnet-beta' ? '' : `?cluster=${CLUSTER}`
+  return `https://solscan.io/tx/${signature}${suffix}`
+}

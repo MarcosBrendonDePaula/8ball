@@ -542,3 +542,73 @@ input:focus {
   border-radius: 10px;
   padding: 12px 14px;
 }
+
+/* ------------------------------------------------------------- histórico */
+
+.historico {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.hist-linha {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+}
+
+.hist-resultado {
+  font-weight: 600;
+}
+.hist-linha.venceu .hist-resultado {
+  color: var(--chalk);
+}
+.hist-linha.perdeu .hist-resultado {
+  opacity: 0.65;
+}
+
+.hist-pote,
+.hist-quando {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* O selo é a informação mais importante da linha: diz se a partida foi
+   conferida pelo próprio navegador, e não pela nossa palavra. */
+.hist-prova {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hist-confere {
+  color: var(--chalk);
+}
+.hist-divergiu {
+  color: #e06c5b;
+  font-weight: 600;
+}
+.hist-erro {
+  opacity: 0.5;
+}
+
+.hist-link {
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.hist-link:hover {
+  opacity: 1;
+}
+
+@media (max-width: 560px) {
+  .hist-linha {
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+  }
+}

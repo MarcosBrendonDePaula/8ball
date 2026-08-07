@@ -8,6 +8,7 @@ import {
   getProvider,
   type WalletState,
 } from '@/wallet/phantom'
+import { loadHistory, renderHistory, type HistoryEntry } from '@/ui/history'
 import { formatAmount, parseAmount, type GameMode, type Room } from '@zinc-pool/protocol'
 import { GAME_MODES, GAME_MODE_INFO } from '@zinc-pool/engine-rules'
 
@@ -23,6 +24,42 @@ let busy = false
 
 /** Preservado entre renders — o innerHTML recria os inputs a cada atualização. */
 const form = { stake: '0.05', label: '', mode: 'eightball' as GameMode }
+
+/**
+ * Histórico do jogador, lido da chain.
+ *
+ * Fora do `netState` de propósito: não vem do nosso servidor, vem da
+ * blockchain. Misturar as duas origens no mesmo estado esconderia justamente o
+ * que torna o histórico confiável.
+ */
+let historico: HistoryEntry[] = []
+let historicoCarregando = false
+let historicoDe: string | null = null
+
+/**
+ * Recarrega o histórico quando a carteira muda.
+ *
+ * A leitura passa por `getProgramAccounts`, que é cara; refazê-la a cada
+ * atualização de saldo deixaria o lobby lento sem mostrar nada de novo.
+ */
+function sincronizarHistorico(address: string | null): void {
+  if (!address || address === historicoDe) return
+
+  historicoDe = address
+  historicoCarregando = true
+
+  void loadHistory(address)
+    .then((entradas) => {
+      historico = entradas
+    })
+    .catch(() => {
+      historico = []
+    })
+    .finally(() => {
+      historicoCarregando = false
+      render()
+    })
+}
 
 const root = document.getElementById('app')!
 
@@ -277,6 +314,13 @@ function renderLobby(): string {
         : `<p class="empty">Nenhuma mesa aberta. Crie a primeira.</p>`
     }
 
+    <h2 class="section">Suas partidas ${historico.length ? `<span>${historico.length}</span>` : ''}</h2>
+    ${
+      historicoCarregando
+        ? `<p class="empty"><span class="spinner"></span>Lendo da blockchain…</p>`
+        : renderHistory(historico, symbol())
+    }
+
     <div class="actions">
       <button id="disconnect" class="ghost">Sair</button>
     </div>
@@ -391,6 +435,9 @@ export function mount(): void {
   net.subscribe((state) => {
     netState = state
     if (state.error) localError = null
+    // Carrega o histórico na primeira vez que a carteira aparece, e de novo se
+    // ela mudar. Recarregar a cada mensagem deixaria o lobby lento à toa.
+    sincronizarHistorico(state.address)
     render()
   })
 

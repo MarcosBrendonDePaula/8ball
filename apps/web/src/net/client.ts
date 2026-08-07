@@ -522,6 +522,7 @@ export type MatchMessage = Extract<
       | 'match.opponentOffline'
       | 'match.opponentOnline'
       | 'match.end'
+      | 'match.settled'
   }
 >
 
@@ -539,6 +540,7 @@ const MATCH_MESSAGES = new Set<ServerMessage['t']>([
   'match.opponentOffline',
   'match.opponentOnline',
   'match.end',
+  'match.settled',
 ])
 
 const toHex = (bytes: Uint8Array): string =>

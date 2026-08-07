@@ -644,6 +644,11 @@ async function liquidar(
 ): Promise<void> {
   if (!refereeKeypair) {
     console.warn(`[settle] sem chave de referee; ${matchId.slice(0, 8)}… irá para reembolso`)
+    toPlayers(players, {
+      t: 'match.settled',
+      signature: null,
+      reason: 'sem chave de liquidação; as entradas voltam pelo prazo',
+    })
     return
   }
 
@@ -653,6 +658,15 @@ async function liquidar(
     players,
     result,
   )
+
+  // O jogador recebe a assinatura para conferir o pagamento por fora. Sem
+  // isso, "vai para a blockchain automaticamente" é uma promessa que ele não
+  // tem como verificar.
+  toPlayers(players, {
+    t: 'match.settled',
+    signature: r.ok ? r.signature : null,
+    reason: r.ok ? null : r.reason,
+  })
 
   if (!r.ok && r.retriable) {
     // Não insiste em laço: a mesa continua na chain e o varredor a resolve

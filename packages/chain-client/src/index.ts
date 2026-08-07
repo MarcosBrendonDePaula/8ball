@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js'
+import bs58 from 'bs58'
 import {
   PublicKey,
   SystemProgram,
@@ -364,6 +365,83 @@ export type MatchRecord = {
  * É a porta da auditoria: qualquer pessoa chama isto, decodifica o replay e
  * confere o resultado sem depender de nenhum serviço nosso.
  */
+/**
+ * Onde cada campo do `MatchRecord` começa.
+ *
+ * Usado nos filtros do RPC: consultar por vencedor ou perdedor exige o
+ * deslocamento exato do campo dentro da conta.
+ */
+const RECORD_OFFSET = {
+  matchId: 8,
+  winner: 24,
+  loser: 56,
+} as const
+
+/** Decodifica os bytes de um `MatchRecord` já lido. */
+export function decodeMatchRecord(data: Uint8Array): MatchRecord {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  let offset = 8
+
+  const id = data.slice(offset, offset + 16)
+  offset += 16
+  const winner = new PublicKey(data.subarray(offset, offset + 32))
+  offset += 32
+  const loser = new PublicKey(data.subarray(offset, offset + 32))
+  offset += 32
+  const pot = view.getBigUint64(offset, true)
+  offset += 8
+  const settledAt = Number(view.getBigInt64(offset, true))
+  offset += 8
+  const resultHash = data.slice(offset, offset + 32)
+  offset += 32
+  const tamanho = view.getUint32(offset, true)
+  offset += 4
+  const replay = data.slice(offset, offset + tamanho)
+
+  return { matchId: id, winner, loser, pot, settledAt, resultHash, replay }
+}
+
+/**
+ * Histórico de partidas de um jogador, lido DIRETO da blockchain.
+ *
+ * Sem banco de dados de propósito. O `MatchRecord` de cada partida liquidada é
+ * permanente e público, então o histórico não depende de nós existirmos — e o
+ * próprio jogador pode refazer esta consulta com qualquer RPC, sem confiar na
+ * nossa versão dos fatos.
+ *
+ * São duas consultas porque a conta guarda vencedor e perdedor em campos
+ * diferentes, e o RPC filtra por posição de byte.
+ */
+export async function fetchPlayerHistory(
+  connection: Connection,
+  player: PublicKey,
+): Promise<(MatchRecord & { pda: PublicKey; won: boolean })[]> {
+  // O discriminador é obrigatório no filtro. Sem ele, a consulta por vencedor
+  // no offset 24 também casa com contas `Game`, onde o CRIADOR fica no mesmo
+  // deslocamento — e decodificá-las como registro estoura o buffer.
+  const daClasse = {
+    memcmp: { offset: 0, bytes: bs58.encode(accountDiscriminator('MatchRecord')) },
+  }
+
+  const porCampo = async (offset: number) =>
+    connection.getProgramAccounts(PROGRAM_ID, {
+      filters: [daClasse, { memcmp: { offset, bytes: player.toBase58() } }],
+    })
+
+  const [vitorias, derrotas] = await Promise.all([
+    porCampo(RECORD_OFFSET.winner).catch(() => []),
+    porCampo(RECORD_OFFSET.loser).catch(() => []),
+  ])
+
+  return [...vitorias, ...derrotas]
+    .map(({ pubkey, account }) => {
+      const registro = decodeMatchRecord(new Uint8Array(account.data))
+      return { ...registro, pda: pubkey, won: registro.winner.equals(player) }
+    })
+    // Mais recente primeiro: é o que o jogador quer ver.
+    .sort((a, b) => b.settledAt - a.settledAt)
+}
+
 export async function fetchMatchRecord(
   connection: Connection,
   matchId: Uint8Array,
