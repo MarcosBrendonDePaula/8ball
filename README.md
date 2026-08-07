@@ -9,7 +9,7 @@ qualquer pessoa, para sempre.
 | Program ID | `4Y3qRV52756DJgJDzvj9z5et5LX4Wr1Jm9cVEK4sS3ht` |
 | Rede | devnet |
 | Física | v1 · digest `1751bd8c` |
-| Testes | 495 |
+| Testes | 503 |
 
 ## Rodar
 
@@ -62,6 +62,12 @@ Para que isso sobreviva ao desaparecimento deste repositório,
 [`docs/PHYSICS-SPEC.md`](docs/PHYSICS-SPEC.md) descreve a simulação em detalhe
 suficiente para reimplementá-la do zero, e `publish_provenance` ancora o hash
 desse documento on-chain.
+
+> **O hash ancorado não bate com o arquivo atual.** Uma auditoria encontrou
+> três erros no texto ancorado, incluindo um digest errado no critério de
+> aceitação. A procedência é imutável por desenho, então a correção é uma
+> revisão nova, com a errata registrada no próprio documento. Um documento que
+> induz ao erro vale menos que um hash que confere.
 
 ## Documentação
 

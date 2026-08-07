@@ -13,6 +13,31 @@ qualquer pessoa constrói um verificador independente.
 Uma implementação correta produz esse digest ao rodar a bateria de referência
 (seção 9). Se o seu digest for outro, a implementação divergiu em algum ponto.
 
+### Errata desta revisão
+
+O texto ancorado on-chain para a física v2 (procedência
+`6mcMRNi8X6Uy9pbW4Nv4UWfMbwEbWUSZVHCTNYmHtz1R`) contém três erros encontrados
+depois, numa auditoria adversarial. Esta revisão os corrige, então **o hash
+deste arquivo não bate mais com o gravado na blockchain**.
+
+O conflito é deliberado e a escolha é consciente: a procedência é imutável por
+desenho — se fosse editável, alguém trocaria a especificação depois de partidas
+jogadas — e um documento que induz ao erro vale menos que um hash que confere.
+A revisão ancorada continua sendo o registro histórico; esta é a que serve para
+reimplementar.
+
+Os erros eram:
+
+1. **A seção 9 dizia `1751bd8c`**, que é o digest da física **v1**, enquanto o
+   cabeçalho já dizia `8348dd95`. Quem reimplementasse corretamente e conferisse
+   pelo critério final concluiria que errou, e a seção 10 o mandaria caçar bugs
+   inexistentes.
+2. **Não dizia que encaçapar zera a velocidade e o efeito da bola.** Uma
+   reimplementação fiel ao texto marcaria `pocketed` e pararia aí; como o hash
+   do estado absorve a velocidade de todas as bolas, o digest sairia diferente.
+3. **Não dizia que o conjunto de bolas ativas é recalculado a cada
+   sub-iteração** do laço de colisão, depois da captura das caçapas.
+
 ### O que mudou da versão 1
 
 Apenas o **jitter da quebra** (seção 8). Todo o resto — aritmética, geometria,
@@ -332,6 +357,28 @@ para linha em 0..4:
 
 A branca começa em `CUE_SPOT`.
 
+### Captura nas caçapas
+
+Ao fim de cada passo, toda bola cujo CENTRO esteja dentro do raio de captura de
+alguma caçapa sai da mesa:
+
+```
+para cada bola não encaçapada:
+  se pocketAt(bola.posição) >= 0:
+    bola.encaçapada = verdadeiro
+    bola.velocidade = (0, 0)
+    bola.efeito     = (0, 0)
+    emite evento 'pocketed'
+```
+
+**Zerar velocidade e efeito não é detalhe de limpeza.** O hash do estado (seção
+9) absorve a velocidade de TODAS as bolas, encaçapadas ou não. Uma
+implementação que só marcasse `encaçapada` produziria outro digest.
+
+O conjunto de bolas ativas é **recalculado a cada sub-iteração** do laço de
+colisão, depois da captura — uma bola que caiu no meio do passo não participa
+das colisões restantes daquele passo.
+
 ### Jitter da quebra
 
 Derivado do seed de 32 bytes, em duas camadas somadas.
@@ -467,7 +514,7 @@ Cada partida produz `hashInicial : (hashEstado : hashEventos) × 6`, juntos por
 `:`. O digest final é FNV-1a sobre `nome=resultado` de cada partida, em ordem
 alfabética de nome (`partida-00` a `partida-23`).
 
-**O resultado tem de ser `1751bd8c`.**
+**O resultado tem de ser `8348dd95`.**
 
 ---
 

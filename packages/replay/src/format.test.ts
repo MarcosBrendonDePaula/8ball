@@ -31,7 +31,11 @@ import {
 
 const seed = Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + 3) % 256)
 
-const replayBase = (shots: Replay['shots'] = [], decisions: number[] = []): Replay => ({
+const replayBase = (
+  shots: Replay['shots'] = [],
+  decisions: number[] = [],
+  calls: { ball: number; pocket: number }[] = [],
+): Replay => ({
   version: REPLAY_VERSION,
   mode: 'eightball',
   engineVersion: ENGINE_VERSION,
@@ -40,7 +44,7 @@ const replayBase = (shots: Replay['shots'] = [], decisions: number[] = []): Repl
   shots,
   decisions,
   placements: [],
-  calls: [],
+  calls,
 })
 
 const tacada = (over: Partial<Replay['shots'][number]> = {}) => ({
@@ -233,5 +237,32 @@ describe('decisões', () => {
   test('bytes truncados no fim das decisões são recusados', () => {
     const bytes = encodeReplay(replayBase([tacada()], [1, 2]))
     expect(() => decodeReplay(bytes.slice(0, bytes.length - 1))).toThrow(ReplayFormatError)
+  })
+})
+
+describe('confusão entre versões', () => {
+  test('um replay v4 não pode carregar declarações', () => {
+    // O ataque: mesmo corpo, mesmo tamanho, só o byte da versão trocado. Lido
+    // como v5 as declarações são consumidas; como v4 são ignoradas — e os dois
+    // dão vencedores diferentes, cada um coerente com o próprio hash. Quem
+    // grava escolheria qual leitura ancorar.
+    const bytes = encodeReplay(replayBase([tacada()], [], [{ ball: 8, pocket: 1 }]))
+
+    // Como v5, é válido.
+    expect(decodeReplay(bytes).calls).toHaveLength(1)
+
+    // Trocando só o byte 0, deixa de ser.
+    const disfarcado = Uint8Array.from(bytes)
+    disfarcado[0] = 4
+    expect(() => decodeReplay(disfarcado)).toThrow(/não pode ter declarações/)
+  })
+
+  test('um v4 legítimo, sem declarações, continua sendo lido', () => {
+    const bytes = encodeReplay(replayBase([tacada()], [], []))
+    const v4 = Uint8Array.from(bytes)
+    v4[0] = 4
+
+    expect(decodeReplay(v4).version).toBe(4)
+    expect(decodeReplay(v4).calls).toEqual([])
   })
 })

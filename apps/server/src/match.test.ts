@@ -497,3 +497,55 @@ describe('caçapa declarada', () => {
     expect(conferido.stoppedBecause).toBeNull()
   })
 })
+
+describe('a cozinha é regra, não sugestão de interface', () => {
+  /**
+   * A restrição vivia SÓ no navegador. Um cliente modificado largava a branca
+   * colada no rack depois de errar a quebra, o servidor aceitava, e o
+   * verificador — que reproduz entradas sem julgar se elas eram legais —
+   * certificava a partida como válida para sempre.
+   */
+  function comFaltaNaQuebra(): { m: Match; agora: number } | null {
+    for (let semente = 0; semente < 40; semente++) {
+      const m = partidaIniciada()
+      // Quebra fraca: a branca cai ou nada vai à tabela.
+      m.shoot(enderecoDaVez(m), tacada(semente * 9, 0.05), T0)
+      if (m.ballInHand === 'kitchen') return { m, agora: T0 }
+    }
+    return null
+  }
+
+  test('posição além da linha da cabeça é recusada', () => {
+    const achou = comFaltaNaQuebra()
+    if (!achou) return
+
+    const quem = achou.m.players[achou.m.summary!.turn].address
+    // 1.9m está do outro lado da mesa; a cozinha vai até 0.495m.
+    expect(() => achou.m.place(quem, 1.9, 0.5, achou.agora)).toThrow(/linha da cabeça/)
+  })
+
+  test('posição dentro da cozinha é aceita', () => {
+    const achou = comFaltaNaQuebra()
+    if (!achou) return
+
+    const quem = achou.m.players[achou.m.summary!.turn].address
+    expect(() => achou.m.place(quem, 0.3, 0.5, achou.agora)).not.toThrow()
+  })
+
+  test('fora da quebra, a mesa inteira vale', () => {
+    // `anywhere` não pode herdar a restrição: a WPA só a impõe após falta na
+    // quebra.
+    const m = partidaIniciada()
+    let agora = T0
+
+    for (let i = 0; i < 12 && m.ballInHand !== 'anywhere'; i++) {
+      if (m.phase !== 'playing' || m.ballInHand !== null) break
+      agora += 1_000
+      m.shoot(enderecoDaVez(m), tacada((i * 47) % 360, 0.9), agora)
+    }
+    if (m.ballInHand !== 'anywhere') return
+
+    const quem = m.players[m.summary!.turn].address
+    expect(() => m.place(quem, 1.9, 0.5, agora)).not.toThrow()
+  })
+})

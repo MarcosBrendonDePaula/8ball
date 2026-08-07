@@ -363,10 +363,13 @@ export class Match {
     // consome, e SEMPRE que a regra exige — inclusive na tacada nula que o
     // relógio dispara. O verificador consome uma declaração por tacada exigida;
     // pular a do relógio desalinharia as duas listas dali em diante.
-    if (this.callRequired) {
-      const declarada = call ?? CACAPA_PADRAO
-      recorder.recordCall(declarada.ball, declarada.pocket)
-    }
+    // O que é GRAVADO tem de ser o que é JULGADO. A tacada do relógio gravava
+    // `CACAPA_PADRAO` mas julgava com `called: null` — hoje inócuo, porque
+    // força zero não encaçapa nada, mas o verificador lê a declaração gravada
+    // e julga com ela. No dia em que a tacada do relógio mover a branca, os
+    // dois lados apontariam vencedores diferentes.
+    const declarada = this.callRequired ? (call ?? CACAPA_PADRAO) : null
+    if (declarada) recorder.recordCall(declarada.ball, declarada.pocket)
     recorder.record(shot)
 
     const resultado = applyShot(table, {
@@ -381,7 +384,7 @@ export class Match {
 
     // As mesmas três chamadas do cliente e do verificador de replay.
     const outcome = fullOutcome(outcomeFromEvents(resultado.events), {
-      called: call ?? null,
+      called: declarada,
     })
     const { state, ruling } = this.modeApi.play(this.rules as never, outcome as never)
     this.rules = state
@@ -415,6 +418,17 @@ export class Match {
     }
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       throw new MatchRuleError('bad_shot', 'Posição inválida.')
+    }
+
+    // A restrição da cozinha vivia SÓ no navegador. Um cliente modificado
+    // largava a branca colada no rack depois de errar a quebra, o servidor
+    // aceitava, e o verificador — que reproduz entradas sem julgar se elas
+    // eram legais — certificava a partida como válida para sempre.
+    if (this.ballInHand === 'kitchen' && x > F.toNumber(T.HEAD_STRING_X)) {
+      throw new MatchRuleError(
+        'bad_shot',
+        'Falta na quebra: a branca vai atrás da linha da cabeça.',
+      )
     }
 
     const onde = this.recorder!.placeCueBall(x, y)
@@ -503,7 +517,16 @@ export class Match {
     // mais fácil de estourar sem perceber: no 8-Ball toda tacada na bola 8
     // exige uma, e o gravador LANÇA ao encher — de dentro do `tick`, que roda
     // por temporizador.
-    return r.remaining < 2 || r.remainingPlacements < 1 || r.remainingCalls < 1
+    // As QUATRO listas contam. A de decisões ficou de fora e era a única com
+    // caminho sujo: em vez do encerramento limpo por "replay cheio", o
+    // gravador lançava de dentro do `tick` e a partida era abortada pelo
+    // tratamento de exceção.
+    return (
+      r.remaining < 2 ||
+      r.remainingPlacements < 1 ||
+      r.remainingCalls < 1 ||
+      r.remainingDecisions < 1
+    )
   }
 
   tick(now: number): TickResult {

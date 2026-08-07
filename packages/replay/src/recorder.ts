@@ -159,6 +159,10 @@ export class ShotRecorder {
     return MAX_CALLS - this.#calls.length
   }
 
+  get remainingDecisions(): number {
+    return MAX_DECISIONS - this.#decisions.length
+  }
+
   /**
    * Registra uma tacada já quantizada.
    *

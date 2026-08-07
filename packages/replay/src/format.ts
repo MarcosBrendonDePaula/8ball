@@ -420,6 +420,17 @@ export function decodeReplay(bytes: Uint8Array): Replay {
     )
   }
 
+  // Um replay anterior ao v5 NÃO pode carregar declarações: o byte 59 era
+  // reservado e valia zero. Aceitá-las com conteúdo permitia forjar dois
+  // replays do mesmo tamanho, com o mesmo corpo, mudando só o byte da versão —
+  // um lido como v5 (consumindo as declarações) e outro como v4 (ignorando-as),
+  // dando VENCEDORES DIFERENTES, cada um coerente com o próprio hash.
+  if (version < 5 && nDeclaracoes > 0) {
+    throw new ReplayFormatError(
+      `Replay v${version} não pode ter declarações de caçapa (veio com ${nDeclaracoes}).`,
+    )
+  }
+
   const inicioDeclaracoes = inicioPosicoes + nPosicoes * PLACEMENT_SIZE
   const calls: { ball: number; pocket: number }[] = []
   for (let i = 0; i < nDeclaracoes; i++) {
