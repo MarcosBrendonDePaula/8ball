@@ -73,9 +73,7 @@ export const MAX_SPIN: Fixed = F.from(2.5)
 export function rackBalls(jitter: readonly Fixed[] = []): TableState {
   const balls = [createBall(CUE_BALL, T.CUE_SPOT.x, T.CUE_SPOT.y)]
 
-  // Espaçamento levemente maior que o diâmetro, para as bolas não nascerem
-  // em contato — o que dispararia colisões antes da primeira tacada.
-  const passo = T.CONTACT_DISTANCE + F.from(0.0005)
+  const passo = T.CONTACT_DISTANCE + RACK_GAP
   const alturaLinha = F.mul(passo, F.from(0.866)) // sen(60°)
 
   let id = 1
@@ -96,19 +94,89 @@ export function rackBalls(jitter: readonly Fixed[] = []): TableState {
   return { balls }
 }
 
-/** Deriva o jitter de um seed de 32 bytes (o `hash(nonceA ‖ nonceB)`). */
+/**
+ * Folga entre as bolas do triângulo, antes do jitter.
+ *
+ * Existe para as bolas não nascerem em contato, o que dispararia colisões
+ * antes da primeira tacada. É este número que limita o quanto cada bola pode
+ * ser deslocada — ver `BALL_JITTER`.
+ */
+export const RACK_GAP: Fixed = F.from(0.0005)
+
+/**
+ * Deslocamento do triângulo inteiro, em cada eixo. Física v2.
+ *
+ * ±2 mm é o que dá para extrair de um byte com resolução útil: em Q16.16 uma
+ * unidade vale 0,015 mm, então esta amplitude cobre 261 posições distintas por
+ * eixo — praticamente toda a entropia dos 256 valores de um byte.
+ */
+export const RACK_SHIFT: Fixed = F.from(0.002)
+
+/**
+ * Deslocamento individual de cada bola.
+ *
+ * NÃO PODE PASSAR DE METADE DA FOLGA DO RACK. As bolas nascem com 0,503 mm
+ * entre elas; se duas vizinhas se aproximarem mais que isso, nascem
+ * sobrepostas e a simulação dispara colisões antes da primeira tacada.
+ *
+ * Duas coisas tornam a conta pior do que parece, e as duas já morderam:
+ *
+ *   - o deslocamento é por EIXO, então na diagonal ele vale amplitude·√2
+ *   - o `floor` do mapeamento estende a faixa para −11..+9 unidades quando a
+ *     amplitude nominal é 10, porque arredondar para baixo nunca encurta o
+ *     lado negativo
+ *
+ * Com 0,1 mm a faixa real é −8..+6 unidades, a aproximação máxima entre duas
+ * vizinhas é ~23 unidades e a folga disponível é ~32. Sobra margem de verdade.
+ *
+ * A v1 usava ±0,2 mm e ignorava as duas correções: sobrepunha bolas em quase
+ * todo rack, sem nada acusando — a simulação simplesmente começava resolvendo
+ * colisões que não deviam existir. Não havia teste de sobreposição. Agora há.
+ *
+ * A entropia da quebra não depende mais deste número: ela mora em
+ * `RACK_SHIFT`, que desloca o triângulo inteiro sem alterar as distâncias.
+ */
+export const BALL_JITTER: Fixed = F.from(0.0001)
+
+/**
+ * Deriva o jitter de um seed de 32 bytes (o `hash(nonceA ‖ nonceB)`).
+ *
+ * Sem isto a quebra vira um problema resolvido: alguém acha o vetor ótimo e
+ * ganha toda partida em que quebra.
+ *
+ * Duas camadas, e a divisão não é estética — é o que permite amplitude grande
+ * sem quebrar o triângulo:
+ *
+ *   - o RACK INTEIRO desliza até ±2 mm, o que move onde a branca acerta a bola
+ *     da frente e muda a quebra por completo. Como todas as bolas andam junto,
+ *     a distância entre elas não muda e nenhuma nasce sobreposta.
+ *   - cada BOLA ainda desloca ±0,2 mm por conta própria, o mínimo para o
+ *     aglomerado não ser idêntico a cada rack.
+ *
+ * A tentativa óbvia — dar ±2 mm a cada bola — foi medida e sobrepõe bolas em
+ * 100% dos seeds, até 3,75 mm. Alargar o rack para acomodar isso deixaria as
+ * bolas soltas, e num rack real elas estão coladas: é assim que a energia da
+ * quebra atravessa o aglomerado.
+ */
 export function jitterFromSeed(seed: Uint8Array): Fixed[] {
   const valores: Fixed[] = []
-  // ±0.2mm: suficiente para mudar a quebra, invisível para o jogador.
-  const amplitude = F.from(0.0002)
+
+  // Dois bytes dedicados ao deslize do rack, fora do laço das bolas, para o
+  // valor não depender de quantas bolas a modalidade usa.
+  const deslizeX = espalhar(seed[30] ?? 0, RACK_SHIFT)
+  const deslizeY = espalhar(seed[31] ?? 0, RACK_SHIFT)
 
   for (let i = 0; i < 30; i++) {
     const byte = seed[i % seed.length] ?? 0
-    // Mapeia 0..255 para -amplitude..+amplitude.
-    valores.push(Math.floor((amplitude * 2 * (byte - 128)) / 255))
+    const proprio = espalhar(byte, BALL_JITTER)
+    valores.push(proprio + (i % 2 === 0 ? deslizeX : deslizeY))
   }
   return valores
 }
+
+/** Mapeia 0..255 para -amplitude..+amplitude, com arredondamento uniforme. */
+const espalhar = (byte: number, amplitude: Fixed): Fixed =>
+  Math.floor((amplitude * 2 * (byte - 128)) / 255)
 
 export type ShotResult = {
   events: CollisionEvent[]

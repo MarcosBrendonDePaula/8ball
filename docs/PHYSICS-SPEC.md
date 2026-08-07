@@ -1,4 +1,4 @@
-# Especificação da física — versão 1
+# Especificação da física — versão 2
 
 Este documento existe por um motivo específico: **permitir que alguém
 reimplemente a simulação do zero, sem o nosso código**, e obtenha exatamente
@@ -8,10 +8,32 @@ Os replays das partidas estão gravados na blockchain. Sem esta especificação,
 eles são bytes sem significado no dia em que este repositório sumir. Com ela,
 qualquer pessoa constrói um verificador independente.
 
-**Impressão digital desta versão:** `1751bd8c`
+**Impressão digital desta versão:** `8348dd95`
 
 Uma implementação correta produz esse digest ao rodar a bateria de referência
 (seção 9). Se o seu digest for outro, a implementação divergiu em algum ponto.
+
+### O que mudou da versão 1
+
+Apenas o **jitter da quebra** (seção 8). Todo o resto — aritmética, geometria,
+constantes, integração, colisões, atrito, quantização — é idêntico.
+
+A v1 deslocava cada bola em ±0,2 mm de forma independente, e isso tinha dois
+defeitos simultâneos:
+
+1. A resolução de Q16.16 é 0,0153 mm, então ±0,2 mm cabia em apenas **27
+   posições distintas** por coordenada. Seeds vizinhos produziam a mesma mesa.
+2. O deslocamento é por eixo, então na diagonal ele valia 0,283 mm. Duas bolas
+   vizinhas podiam aproximar-se 0,566 mm contra 0,503 mm de folga, **nascendo
+   sobrepostas** — a simulação começava resolvendo colisões inexistentes.
+
+A v2 separa as duas responsabilidades: o **triângulo inteiro** desliza até
+±2 mm, cobrindo os 256 valores de um byte, enquanto cada bola mantém um
+deslocamento pequeno o bastante para o rack não abrir. Como todas as bolas
+andam junto, as distâncias entre elas não mudam.
+
+Replays gravados com a v1 **devem ser verificados com uma implementação da
+v1**. Reproduzi-los com esta especificação dá outro resultado.
 
 ---
 
@@ -312,14 +334,39 @@ A branca começa em `CUE_SPOT`.
 
 ### Jitter da quebra
 
-Derivado do seed de 32 bytes, com amplitude de 0.2mm:
+Derivado do seed de 32 bytes, em duas camadas somadas.
 
 ```
-amplitude = from(0.0002)
+RACK_SHIFT  = from(0.002)    # deslize do triângulo inteiro, ±2mm
+BALL_JITTER = from(0.0001)   # deslocamento de cada bola, ±0.1mm
+
+espalhar(byte, amplitude) = floor((amplitude * 2 * (byte - 128)) / 255)
+
+deslizeX = espalhar(seed[30], RACK_SHIFT)
+deslizeY = espalhar(seed[31], RACK_SHIFT)
+
 para i em 0..29:
   byte = seed[i % 32]
-  jitter[i] = floor((amplitude * 2 * (byte - 128)) / 255)
+  proprio = espalhar(byte, BALL_JITTER)
+  se i for par:  jitter[i] = proprio + deslizeX
+  senão:         jitter[i] = proprio + deslizeY
 ```
+
+A divisão do seed é limpa: os bytes **0 a 29** alimentam o deslocamento das
+bolas, um por coordenada, e os bytes **30 e 31** alimentam o deslize do rack.
+Nenhum byte serve a dois propósitos, e o deslize fica fora do laço para não
+depender de quantas bolas a modalidade usa.
+
+**Duas armadilhas que uma reimplementação precisa reproduzir:**
+
+O `floor` torna a faixa **assimétrica**. Com `BALL_JITTER = 7` unidades, o
+resultado vai de −8 a +6, não de −7 a +7. Usar arredondamento simétrico muda
+as posições iniciais e o digest não bate.
+
+O deslize é aplicado **por paridade do índice**, não por bola: índices pares
+recebem `deslizeX`, ímpares `deslizeY`. Como `jitter[2*(id-1)]` é sempre par e
+`jitter[2*(id-1)+1]` sempre ímpar, cada bola recebe o mesmo par (x, y) — que é
+o que mantém o triângulo rígido.
 
 ### Aplicar a tacada
 

@@ -2,7 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { CUE_LIMITS, clampCue, DEFAULT_CUE } from './cue'
 import * as F from './fixed'
 import { hashEvents, hashState } from './hash'
-import { applyShot, CUE_BALL, jitterFromSeed, rackBalls } from './replay'
+import {
+  applyShot,
+  BALL_JITTER,
+  CUE_BALL,
+  jitterFromSeed,
+  RACK_GAP,
+  rackBalls,
+} from './replay'
 import { cloneState, isMoving, step as stepOnce } from './sim'
 import * as T from './table'
 import * as V from './vec'
@@ -315,5 +322,83 @@ describe('hash', () => {
   test('lista de eventos vazia tem hash estável', () => {
     expect(hashEvents([])).toBe(hashEvents([]))
     expect(hashEvents([])).toHaveLength(8)
+  })
+})
+
+describe('o rack nunca nasce com bolas sobrepostas', () => {
+  /**
+   * A guarda que faltava na v1.
+   *
+   * O jitter desloca as bolas em CADA eixo, então o deslocamento diagonal vale
+   * amplitude·√2 — e é ele, não o de um eixo, que precisa caber na folga do
+   * rack. A v1 errava essa conta e sobrepunha bolas em quase todo rack, sem
+   * nada acusando: a simulação simplesmente começava resolvendo colisões que
+   * não deviam existir.
+   */
+  const seeds = Array.from({ length: 300 }, (_, s) =>
+    Uint8Array.from({ length: 32 }, (_, i) => (s * 7919 + i * 131 + s * i) % 256),
+  )
+
+  test('nenhum par de bolas viola a distância de contato', () => {
+    for (const seed of seeds) {
+      const { balls } = rackBalls(jitterFromSeed(seed))
+      for (let a = 0; a < balls.length; a++) {
+        for (let b = a + 1; b < balls.length; b++) {
+          const d = V.length(V.sub(balls[a]!.position, balls[b]!.position))
+          expect(d).toBeGreaterThanOrEqual(T.CONTACT_DISTANCE)
+        }
+      }
+    }
+  })
+
+  test('a amplitude do jitter cabe na folga do rack, na diagonal', () => {
+    // Se alguém aumentar BALL_JITTER, é aqui que descobre por que não pode.
+    //
+    // A faixa REAL é medida, não deduzida da constante: o `floor` do
+    // mapeamento a torna assimétrica, e foi exatamente essa diferença que
+    // sobrepôs as bolas quando o valor foi calibrado só pela amplitude
+    // nominal.
+    let maiorDeslocamento = 0
+    for (let byte = 0; byte < 256; byte++) {
+      const seed = new Uint8Array(32).fill(byte)
+      // Neutraliza o deslize do rack para medir só a parcela por bola.
+      seed[30] = 128
+      seed[31] = 128
+      for (const v of jitterFromSeed(seed)) {
+        maiorDeslocamento = Math.max(maiorDeslocamento, Math.abs(v))
+      }
+    }
+
+    expect(maiorDeslocamento).toBeGreaterThanOrEqual(BALL_JITTER)
+    expect(2 * maiorDeslocamento * Math.SQRT2).toBeLessThan(RACK_GAP)
+  })
+
+  test('o deslize do rack move todas as bolas junto', () => {
+    // Se movesse só algumas, a folga entre elas mudaria e o teste acima cairia.
+    const semDeslize = new Uint8Array(32).fill(128)
+    const comDeslize = new Uint8Array(32).fill(128)
+    comDeslize[30] = 255
+    comDeslize[31] = 255
+
+    const a = rackBalls(jitterFromSeed(semDeslize)).balls
+    const b = rackBalls(jitterFromSeed(comDeslize)).balls
+
+    // Descarta a branca, que não faz parte do triângulo.
+    const deltas = a
+      .slice(1)
+      .map((bola, i) => `${b[i + 1]!.position.x - bola.position.x},${b[i + 1]!.position.y - bola.position.y}`)
+
+    expect(new Set(deltas).size).toBe(1)
+  })
+
+  test('o deslize usa a entropia inteira do byte', () => {
+    const posicoes = new Set(
+      Array.from({ length: 256 }, (_, byte) => {
+        const seed = new Uint8Array(32)
+        seed[30] = byte
+        return jitterFromSeed(seed)[0]
+      }),
+    )
+    expect(posicoes.size).toBe(256)
   })
 })

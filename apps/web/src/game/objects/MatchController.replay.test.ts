@@ -136,25 +136,37 @@ describe('o seed de 32 bytes atravessa a partida', () => {
   })
 
   /**
-   * O jitter tem resolução grosseira, e isso é esperado.
+   * A entropia da quebra mora no deslize do rack, não no jitter por bola.
    *
-   * A amplitude de ±0,2 mm vale só 13 unidades em ponto fixo, então os 256
-   * valores de um byte caem em 27 deslocamentos distintos — bytes vizinhos
-   * produzem a MESMA posição. Não é falha: são 30 coordenadas independentes, o
-   * que dá 27³⁰ arranjos, muito além do que alguém precomputaria para dominar
-   * a quebra.
+   * A v1 dava ±0,2 mm a cada bola, o que tinha dois defeitos ao mesmo tempo:
+   * a resolução do ponto fixo reduzia os 256 valores do byte a 27 posições, e
+   * a soma na diagonal excedia a folga do triângulo, fazendo as bolas
+   * nascerem sobrepostas.
    *
-   * Fica travado por teste porque mexer nisso mudaria a impressão digital da
-   * física, que está ancorada on-chain — a correção exigiria uma versão nova.
+   * A v2 desloca o TRIÂNGULO INTEIRO em ±2 mm — que cobre os 256 valores do
+   * byte — e mantém o jitter por bola pequeno o bastante para o rack não
+   * abrir. Como todas as bolas andam junto, a distância entre elas não muda.
    */
-  test('a resolução do jitter é conhecida e estável', () => {
-    const distintos = new Set(
-      Array.from({ length: 256 }, (_, b) => jitterFromSeed(new Uint8Array(32).fill(b))[0]),
+  test('o deslize do rack usa a entropia inteira do byte', () => {
+    const posicoes = new Set(
+      Array.from({ length: 256 }, (_, byte) => {
+        const seed = new Uint8Array(32)
+        seed[30] = byte
+        return jitterFromSeed(seed)[0]
+      }),
     )
 
-    expect(distintos.size).toBe(27)
-    expect(hashDaMesa(new MatchController('eightball', 1))).toBe(
-      hashDaMesa(new MatchController('eightball', 2)),
+    expect(posicoes.size).toBe(256)
+  })
+
+  test('seeds que diferem num único byte produzem mesas diferentes', () => {
+    // O que a v1 não conseguia: bytes vizinhos caíam na mesma posição.
+    const a = new Uint8Array(32)
+    const b = new Uint8Array(32)
+    b[30] = 1
+
+    expect(hashDaMesa(new MatchController('eightball', a))).not.toBe(
+      hashDaMesa(new MatchController('eightball', b)),
     )
   })
 })

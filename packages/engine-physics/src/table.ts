@@ -15,7 +15,7 @@ import type { Vec } from './vec'
  * digest da bateria com o declarado abaixo e falha se alguém mudar a física
  * sem incrementar aqui.
  */
-export const ENGINE_VERSION = 1
+export const ENGINE_VERSION = 2
 
 /**
  * Impressão digital da física desta versão.
@@ -24,7 +24,7 @@ export const ENGINE_VERSION = 1
  * bateria, compara com este valor, e sabe se está executando a mesma física
  * que gravou o replay.
  */
-export const PHYSICS_DIGEST = '1751bd8c'
+export const PHYSICS_DIGEST = '8348dd95'
 
 /**
  * Geometria da mesa e constantes físicas.
