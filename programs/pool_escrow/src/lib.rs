@@ -6,8 +6,8 @@
 //! nem o operador do jogo — consegue burlar depois que o programa está no ar.
 //!
 //! A simulação da partida roda fora daqui, no servidor (ver docs/TDD.md §4).
-//! O que amarra o resultado à realidade é o `result_hash`, gravado on-chain:
-//! o replay é público e qualquer um reproduz a partida e confere o vencedor.
+//! O que amarra o resultado à realidade é o REPLAY, gravado on-chain: qualquer
+//! um reproduz a partida e confere o vencedor.
 //!
 //! Fluxo:
 //!   create_match  → A deposita, sala aberta
@@ -230,7 +230,6 @@ pub mod pool_escrow {
     pub fn settle_match(
         ctx: Context<SettleMatch>,
         winner: Pubkey,
-        result_hash: [u8; 32],
         replay: Vec<u8>,
         nonce_creator: [u8; 32],
         nonce_opponent: [u8; 32],
@@ -327,12 +326,11 @@ pub mod pool_escrow {
         record.match_id = match_id;
         record.winner = winner;
         record.loser = if winner == game.creator { game.opponent } else { game.creator };
-        record.creator = game.creator;
+        record.creator_won = winner == game.creator;
         record.nonce_creator = nonce_creator;
         record.nonce_opponent = nonce_opponent;
         record.pot = pot;
         record.settled_at = Clock::get()?.unix_timestamp;
-        record.result_hash = result_hash;
         record.replay = replay;
         record.bump = ctx.bumps.record;
 
@@ -343,7 +341,9 @@ pub mod pool_escrow {
             prize,
             treasury: treasury_cut,
             house: house_cut,
-            result_hash,
+            // Calculado aqui: o replay está na conta, então guardar o hash
+            // seria redundante — mas quem escuta o evento não tem a conta.
+            result_hash: hash(&ctx.accounts.record.replay).to_bytes(),
         });
 
         Ok(())
@@ -847,7 +847,7 @@ pub struct CancelMatch<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(winner: Pubkey, result_hash: [u8; 32], replay: Vec<u8>)]
+#[instruction(winner: Pubkey, replay: Vec<u8>)]
 pub struct SettleMatch<'info> {
     #[account(mut, address = config.referee @ EscrowError::NotReferee)]
     pub referee: Signer<'info>,
@@ -940,19 +940,20 @@ pub struct MatchRecordV2 {
     pub winner: Pubkey,
     pub loser: Pubkey,
     /**
-     * Quem criou a mesa — o JOGADOR 0 do replay.
+     * O criador da mesa é o VENCEDOR?
      *
-     * Sem este campo o replay era inauditável no ponto que mais importa: ele
-     * chama os jogadores de 0 e 1, o registro guardava só vencedor e perdedor,
-     * e a conta `Game` (que tinha o criador) é fechada na liquidação. Ninguém
-     * conseguia ligar o vencedor do replay a uma carteira — então um referee
-     * comprometido pagava o perdedor e a auditoria dizia "confere".
+     * O jogador 0 do replay é sempre o criador, e sem essa ligação o replay
+     * era inauditável no ponto que mais importa: ele chama os jogadores de 0 e
+     * 1, e a conta `Game`, que tinha o criador, é fechada na liquidação. Um
+     * referee comprometido pagava o perdedor e a auditoria dizia "confere".
+     *
+     * Guardar a chave inteira seria redundante: o criador é necessariamente um
+     * dos dois acima. Um bit basta, e economiza 32 bytes de estado permanente
+     * em toda partida.
      */
-    pub creator: Pubkey,
+    pub creator_won: bool,
     pub pot: u64,
     pub settled_at: i64,
-    /// SHA-256 dos bytes do replay.
-    pub result_hash: [u8; 32],
     /**
      * Os nonces revelados, que geraram o seed da quebra.
      *
@@ -970,7 +971,7 @@ pub struct MatchRecordV2 {
 
 impl MatchRecordV2 {
     /// Tamanho sem o replay. O `+ 4` é o prefixo de comprimento do `Vec`.
-    pub const BASE_LEN: usize = 8 + 16 + 32 * 3 + 8 + 8 + 32 + 32 * 2 + 4 + 1;
+    pub const BASE_LEN: usize = 8 + 16 + 32 * 2 + 1 + 8 + 8 + 32 * 2 + 4 + 1;
 
     pub fn space(replay_len: usize) -> usize {
         Self::BASE_LEN + replay_len
@@ -1102,7 +1103,13 @@ pub struct MatchSettled {
     pub prize: u64,
     pub treasury: u64,
     pub house: u64,
-    /// Hash do replay. Torna o resultado auditável por qualquer um.
+    /**
+     * Hash do replay, calculado na liquidação.
+     *
+     * Não fica guardado na conta: o replay está lá inteiro, e o hash dele é
+     * recalculável. Vai no evento porque quem escuta a chain não tem a conta
+     * em mãos.
+     */
     pub result_hash: [u8; 32],
 }
 

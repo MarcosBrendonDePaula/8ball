@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { sha256 } from '@noble/hashes/sha2.js'
 import { Keypair, PublicKey, type TransactionInstruction } from '@solana/web3.js'
 import { MAX_ATTEMPTS, settleMatch, type SettlementDeps } from '@/settlement'
 import type { MatchEnded } from '@/match'
@@ -73,7 +72,7 @@ describe('quem recebe', () => {
     expect(ix!.keys.map((k) => k.pubkey.toBase58())).toContain(B)
   })
 
-  test('o hash gravado é o dos bytes do replay', async () => {
+  test('o replay vai inteiro na instrução', async () => {
     let ix: TransactionInstruction | null = null
     await settleMatch(
       deps(async (i) => {
@@ -85,10 +84,11 @@ describe('quem recebe', () => {
       fim(),
     )
 
-    // É o que amarra o resultado declarado ao registro: trocar o replay
-    // depois muda o hash e a fraude aparece.
-    const esperado = Buffer.from(sha256(replay)).toString('hex')
-    expect(Buffer.from(ix!.data).toString('hex')).toContain(esperado)
+    // O hash NÃO viaja: ele é recalculável a partir destes bytes, e guardá-lo
+    // custaria 32 bytes de estado permanente por partida.
+    expect(Buffer.from(ix!.data).toString('hex')).toContain(
+      Buffer.from(replay).toString('hex'),
+    )
   })
 })
 

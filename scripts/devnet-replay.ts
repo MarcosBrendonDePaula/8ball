@@ -171,7 +171,6 @@ const assinatura = await send(
       matchId,
       creator: alice.publicKey,
       winner: vencedor,
-      resultHash: verificacao.replayHash,
       replay: bytes,
       nonceCreator: nonceA,
       nonceOpponent: nonceB,

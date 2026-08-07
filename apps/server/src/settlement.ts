@@ -1,4 +1,3 @@
-import { sha256 } from '@noble/hashes/sha2.js'
 import {
   Connection,
   Keypair,
@@ -93,9 +92,6 @@ export async function settleMatch(
     matchId,
     creator,
     winner,
-    // O hash é dos BYTES do replay, e é o que amarra o resultado declarado ao
-    // registro gravado: trocar o replay depois muda o hash e a fraude aparece.
-    resultHash: sha256(result.replay),
     replay: result.replay,
     nonceCreator: result.nonces[0],
     nonceOpponent: result.nonces[1],

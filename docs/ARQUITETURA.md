@@ -493,6 +493,25 @@ ressarcido do que adiantou. O custo fica onde nasce e a conta escala sozinha.
 O contrato recusa liquidar se o pote não cobrir o depósito, o que também define
 o piso prático da aposta.
 
+### Nada que seja recalculável fica guardado
+
+Estado permanente custa **0,00000696 SOL por byte** — mais caro que uma
+transação inteira, que sai por 0,000005 independentemente do tamanho. Isso torna
+cada byte guardado uma decisão.
+
+Três saíram do registro por serem deriváveis:
+
+| Byte | De onde volta |
+|---|---|
+| chave do criador (32) | ele é o vencedor **ou** o perdedor; 1 bit basta |
+| `result_hash` (32) | é o SHA-256 do replay, que está na própria conta |
+
+O **seed** (32 bytes no replay) também é derivável — é `sha256` dos nonces
+gravados — e foi mantido de propósito. Tirá-lo faria o replay deixar de ser
+autossuficiente: verificar exigiria os nonces por fora, e a especificação da
+física ganharia dependência de algo que não é física. A promessa é "pegue estes
+bytes e reproduza".
+
 ### Liquidação
 
 ```
