@@ -63,3 +63,15 @@ export const FAUCET_COOLDOWN_MS = num('FAUCET_COOLDOWN_MS', 60 * 1000)
  */
 export const FAUCET_KEYPAIR_PATH =
   process.env.FAUCET_KEYPAIR ?? fileURLToPath(new URL('../.devnet-faucet.json', import.meta.url))
+
+/**
+ * Chave que aciona o destravamento automático de mesas vencidas.
+ *
+ * Paga só a taxa: o contrato fixa os destinos do reembolso, então quem assina
+ * não escolhe para onde o dinheiro vai. A do referee serve e já existe.
+ */
+export const SWEEPER_KEYPAIR_PATH =
+  process.env.SWEEPER_KEYPAIR ?? fileURLToPath(new URL('../../../keypairs/referee.json', import.meta.url))
+
+/** Liga o varredor. Desligado só faz o dinheiro esperar alguém clicar. */
+export const SWEEPER_ENABLED = (process.env.SWEEPER_ENABLED ?? 'true') !== 'false'

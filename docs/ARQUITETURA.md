@@ -371,6 +371,54 @@ reconexão sem esperar um segundo sequer.
 
 ---
 
+## 7.6. Destravamento automático — `sweeper`
+
+Uma mesa em que os dois depositaram e ninguém liquidou fica com o dinheiro
+preso na PDA. O contrato já resolve — `claim_timeout` devolve a entrada de cada
+um depois do prazo — mas alguém precisa **chamar**. Esse alguém era uma pessoa
+clicando "Destravar" no painel; se ninguém abrisse o painel, o dinheiro ficava
+lá.
+
+### Por que automatizar isto é seguro
+
+O contrato foi escrito para permitir:
+
+```rust
+pub struct ClaimTimeout<'info> {
+    /// Qualquer um pode acionar depois do prazo — de propósito.
+    pub caller: Signer<'info>,
+    #[account(mut, close = creator, ...)] pub game: Account<'info, Game>,
+    #[account(mut, address = game.creator)]  pub creator:  AccountInfo<'info>,
+    #[account(mut, address = game.opponent)] pub opponent: AccountInfo<'info>,
+}
+```
+
+Quem aciona **não escolhe o destino**: `close = creator` e os `address =` fixam
+as contas contra o que está gravado na partida. O varredor não tem como
+desviar um lamport — ele só paga a taxa.
+
+Por isso ele roda com a chave do **referee**, que já vive no servidor e já só
+paga taxa. Nenhuma chave nova, nenhuma permissão nova.
+
+### As três guardas
+
+| Guarda | Por quê |
+|---|---|
+| Folga de 5 min após o prazo | o contrato compara com `Clock::get()`, não com o relógio do servidor; chamar cedo dá `NotExpiredYet` e gasta taxa à toa |
+| Pula partida viva neste servidor | o prazo on-chain é de uma hora, mas uma partida longa pode passar dele — devolver no meio de uma disputa é pior que esperar |
+| Teto de 5 por passada | evita rajada de transações quando o servidor volta depois de um tempo fora |
+
+Uma mesa que falha não interrompe as outras: a falha mais comum é corrida com
+outra chamada que já destravou, e nesse caso o dinheiro já voltou.
+
+### O envio é injetado
+
+`sweepExpired` decide; quem transporta entra por parâmetro. Separar os dois é o
+que permite testar as decisões — que são as que podem devolver dinheiro na hora
+errada — sem imitar metade do web3.js.
+
+---
+
 ## 8. Fluxo do dinheiro
 
 ### Criar mesa — três tempos
@@ -510,7 +558,7 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | núcleo pronto: turnos, relógio, W.O.; falta a interface |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**395 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**403 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 

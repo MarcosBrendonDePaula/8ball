@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { Keypair } from '@solana/web3.js'
 import type { ServerWebSocket } from 'bun'
 import {
   AuthError,
@@ -10,10 +12,18 @@ import {
 } from '@/auth'
 import { SolanaChain } from '@/chain'
 import { faucetIsAvailable, requestFaucet } from '@/faucet'
-import { CLUSTER, MATCH_TIMEOUT_SECONDS, PORT, TOKEN_SYMBOL } from '@/config'
+import {
+  CLUSTER,
+  MATCH_TIMEOUT_SECONDS,
+  PORT,
+  SWEEPER_ENABLED,
+  SWEEPER_KEYPAIR_PATH,
+  TOKEN_SYMBOL,
+} from '@/config'
 import { Lobby, LobbyError } from '@/lobby'
 import { MatchRuleError, REVEAL_TIMEOUT_MS, DISCONNECT_GRACE_MS } from '@/match'
 import { Matches } from '@/matches'
+import { startSweeper } from '@/sweeper'
 import { ClientMessage, DECIMALS, type ErrorCode, type ServerMessage } from '@zinc-pool/protocol'
 
 const chain = new SolanaChain()
@@ -439,3 +449,36 @@ console.log(`  programa: ${chain.programId}`)
 void chain.getLimits().then(({ minStake, maxStake }) => {
   console.log(`  entrada:  ${minStake} .. ${maxStake} lamports (lidos do Config on-chain)`)
 })
+
+// --------------------------------------------------------------- varredor
+
+/**
+ * Devolve sozinho o dinheiro de mesas vencidas.
+ *
+ * Antes disto, uma mesa em que os dois depositaram e ninguém liquidou ficava
+ * com o dinheiro preso até alguém abrir o painel e clicar "Destravar". Se
+ * ninguém abrisse, ficava lá.
+ *
+ * Roda com a chave do referee, que já vive aqui e já só paga taxa. Não é uma
+ * concessão de confiança: o contrato fixa criador e oponente como destinos do
+ * reembolso, então quem aciona não tem como desviar nada.
+ */
+if (SWEEPER_ENABLED) {
+  try {
+    const secret = JSON.parse(readFileSync(SWEEPER_KEYPAIR_PATH, 'utf8')) as number[]
+    const payer = Keypair.fromSecretKey(Uint8Array.from(secret))
+
+    startSweeper({
+      connection: chain.connection,
+      payer,
+      // Não mexe em mesa cuja partida ainda está viva aqui: devolver o
+      // dinheiro no meio de uma disputa seria pior do que deixá-lo preso.
+      isLive: (matchIdHex) => matches.get(matchIdHex) !== undefined,
+      log: (msg) => console.log(msg),
+    })
+    console.log(`  varredor: ligado (${payer.publicKey.toBase58().slice(0, 8)}…)`)
+  } catch {
+    // Sem chave, o servidor sobe igual — só não destrava sozinho.
+    console.log('  varredor: desligado (chave não encontrada)')
+  }
+}

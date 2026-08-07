@@ -37,6 +37,16 @@ export class SolanaChain implements Chain {
 
   #connection = new Connection(RPC_URL, 'confirmed')
 
+  /**
+   * A conexão, para quem precisa falar com a chain por fora destes métodos.
+   *
+   * Exposta em vez de cada módulo abrir a sua: um só pool de sockets e um só
+   * lugar para trocar de RPC.
+   */
+  get connection(): Connection {
+    return this.#connection
+  }
+
   /** Cache curto: o Config muda raramente, mas não queremos ler a cada mesa. */
   #limits: { valor: Limits; ate: number } | null = null
 

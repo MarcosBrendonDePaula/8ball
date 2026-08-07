@@ -604,6 +604,67 @@ export async function fetchMatch(
 }
 
 /**
+ * Tamanho exato de uma conta `Game`.
+ *
+ * Serve de filtro no `getProgramAccounts`: sem ele o RPC devolveria também
+ * config, cofres, registros de replay e procedências, e a decodificação
+ * quebraria na primeira conta de outro tipo.
+ */
+export const GAME_ACCOUNT_SIZE = 114
+
+/** Decodifica uma conta `Game` já lida. */
+export function decodeGame(data: Uint8Array): OnChainMatch {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  let offset = 8
+
+  const matchId = data.slice(offset, offset + 16)
+  offset += 16
+  const creator = new PublicKey(data.subarray(offset, offset + 32))
+  offset += 32
+  const opponentKey = new PublicKey(data.subarray(offset, offset + 32))
+  offset += 32
+  const stake = view.getBigUint64(offset, true)
+  offset += 8
+  const state = view.getUint8(offset)
+  offset += 1
+  const createdAt = Number(view.getBigInt64(offset, true))
+  offset += 8
+  const deadline = Number(view.getBigInt64(offset, true))
+
+  return {
+    matchId,
+    creator,
+    opponent: opponentKey.equals(PublicKey.default) ? null : opponentKey,
+    stake,
+    state: state === 0 ? 'waiting' : 'committed',
+    createdAt,
+    deadline,
+  }
+}
+
+/**
+ * Todas as mesas abertas no programa.
+ *
+ * Ordenadas por prazo, mais perto de vencer primeiro — é o que precisa de
+ * atenção, tanto no painel quanto no varredor automático.
+ */
+export async function fetchAllMatches(
+  connection: Connection,
+): Promise<(OnChainMatch & { pda: PublicKey; lamports: number })[]> {
+  const contas = await connection.getProgramAccounts(PROGRAM_ID, {
+    filters: [{ dataSize: GAME_ACCOUNT_SIZE }],
+  })
+
+  return contas
+    .map(({ pubkey, account }) => ({
+      ...decodeGame(new Uint8Array(account.data)),
+      pda: pubkey,
+      lamports: account.lamports,
+    }))
+    .sort((a, b) => a.deadline - b.deadline)
+}
+
+/**
  * Lê o saldo esperando a propagação do RPC.
  *
  * Uma transação confirmada não aparece no `getBalance` imediatamente — o nó
