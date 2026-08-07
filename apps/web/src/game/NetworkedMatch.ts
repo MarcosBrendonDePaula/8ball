@@ -69,6 +69,7 @@ export function connectMatch(
   criarMesa: (mode: GameModeId, seed: Uint8Array, you: 0 | 1) => MatchController,
 ): NetworkedMatchHandle {
   let state: NetMatchState = { ...INICIAL }
+  let matchId: string | null = null
   let controller: MatchController | null = null
   const listeners = new Set<(s: NetMatchState) => void>()
 
@@ -80,6 +81,7 @@ export function connectMatch(
   const desinscrever = client.onMatch((msg: MatchMessage) => {
     switch (msg.t) {
       case 'match.begin': {
+        matchId = msg.matchId
         patch({
           fase: 'comprometendo',
           you: msg.you,
@@ -88,14 +90,16 @@ export function connectMatch(
           mensagem: 'Combinando a quebra com o adversário…',
         })
         // O compromisso sai automaticamente: é sorteio, não decisão do
-        // jogador, e pedir um clique aqui só atrasaria a partida.
-        client.commitBreak()
+        // jogador, e pedir um clique aqui só atrasaria a partida. Reenviar o
+        // mesmo compromisso ao reconectar é inofensivo — o servidor recusa o
+        // segundo e mantém o primeiro, que é o que o nonce guardado combina.
+        client.commitBreak(msg.matchId)
         break
       }
 
       case 'match.reveal.open':
         patch({ fase: 'revelando' })
-        client.revealBreak()
+        if (matchId) client.revealBreak(matchId)
         break
 
       case 'match.start': {
@@ -154,6 +158,8 @@ export function connectMatch(
         break
 
       case 'match.end':
+        // O segredo não serve mais e não deve ficar no navegador.
+        if (matchId) client.forgetNonce(matchId)
         patch({
           fase: 'terminada',
           resultado: { winner: msg.winner, reason: msg.reason },

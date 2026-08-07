@@ -185,14 +185,14 @@ function renderMyRoom(room: Room): string {
           ? `<button id="cancel" class="ghost" ${busy ? 'disabled' : ''} data-room="${room.id}">
                ${busy ? '<span class="spinner"></span>Cancelando…' : 'Cancelar e receber de volta'}
              </button>`
-          : `<button disabled>Partida — marco M3</button>`
+          : `<a class="botao-jogar" href="/mesa.html">Entrar na mesa</a>`
       }
     </div>
     <p class="footnote">
       ${
         waiting
           ? 'Cancelar é uma transação: a Phantom vai pedir aprovação e o depósito volta na hora.'
-          : 'A mesa está comprometida. A partida entra no M3, quando a engine de física estiver pronta.'
+          : 'Os dois depósitos estão no contrato. A partida começa assim que os dois entrarem na mesa.'
       }
     </p>`
 }

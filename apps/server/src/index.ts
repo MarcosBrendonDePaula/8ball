@@ -209,6 +209,61 @@ matches.subscribe((event) => {
   }
 })
 
+/**
+ * Abre a partida de uma sala fechada, se ainda não existir.
+ *
+ * Chamado tanto na confirmação do depósito quanto ao o jogador autenticar. O
+ * segundo caso não é redundância: uma sala pode ter fechado antes de o
+ * servidor reiniciar — ou, como aconteceu de fato, antes de o servidor sequer
+ * saber criar partidas. Sem isto, essas mesas ficariam com o dinheiro preso
+ * até o prazo, sem nunca virar jogo.
+ *
+ * A modalidade ainda não é escolhida na sala; entra 8-Ball por padrão até o
+ * seletor existir no lobby.
+ */
+function abrirPartidaSePronta(room: { state: string; matchId: string; creator: string; opponent: string | null } | null): void {
+  if (!room || room.state !== 'committed' || !room.opponent) return
+  if (matches.has(room.matchId)) return
+
+  matches.open(room.matchId, 'eightball', [room.creator, room.opponent])
+}
+
+/**
+ * Põe um jogador recém-conectado de volta na partida.
+ *
+ * Manda o `match.begin` de novo e, se a partida já começou, o `match.start`
+ * com o seed — a mesa é remontada do zero e as tacadas seguintes chegam pelo
+ * fluxo normal.
+ *
+ * LIMITAÇÃO CONHECIDA: quem reconecta no meio de uma partida remonta a mesa na
+ * QUEBRA, não no estado atual, porque só o seed é reenviado. Enquanto o
+ * servidor não mandar as tacadas já jogadas, reconectar no meio deixa a tela
+ * dessincronizada — e é por isso que a tela avisa em vez de fingir que está
+ * tudo certo.
+ */
+function reenviarPartida(ws: ServerWebSocket<Session>, address: string): void {
+  const r = matches.resume(address)
+  if (!r) return
+
+  send(ws, {
+    t: 'match.begin',
+    matchId: r.matchId,
+    mode: r.mode,
+    you: r.you,
+    opponent: r.players[r.you === 0 ? 1 : 0]!,
+    revealDeadline: Date.now() + REVEAL_TIMEOUT_MS,
+  })
+
+  if (r.match?.recorder && r.match.phase !== 'revealing') {
+    send(ws, {
+      t: 'match.start',
+      seed: Buffer.from(r.match.recorder.seed).toString('hex'),
+      turn: r.match.turn ?? 0,
+      deadline: r.match.deadline ?? 0,
+    })
+  }
+}
+
 async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: string): Promise<void> {
   if (msg.t === 'ping') {
     send(ws, { t: 'pong' })
@@ -233,6 +288,12 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
       // Voltar a autenticar cancela a contagem de abandono: o jogador está de
       // volta e a partida continua de onde parou.
       matches.markOnline(address)
+      // E, se a sala dele fechou enquanto o servidor estava fora, é aqui que
+      // a partida finalmente nasce.
+      abrirPartidaSePronta(lobby.roomOf(address))
+      // Reenvia o estado da partida: ir do lobby para a mesa abre um socket
+      // novo, e as mensagens que já passaram não voltam sozinhas.
+      reenviarPartida(ws, address)
       await pushBalance(ws)
       send(ws, { t: 'room.self', room: lobby.roomOf(address) })
     } catch (err) {
@@ -300,11 +361,7 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
         pushRoomSelf([room.creator, room.opponent])
 
         // Os dois depósitos estão confirmados na chain: a partida pode nascer.
-        // A modalidade ainda não é escolhida na sala; entra 8-Ball por padrão
-        // até o seletor existir no lobby.
-        if (room.state === 'committed' && room.opponent) {
-          matches.open(room.matchId, 'eightball', [room.creator, room.opponent])
-        }
+        abrirPartidaSePronta(room)
         break
       }
 

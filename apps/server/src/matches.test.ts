@@ -192,3 +192,56 @@ describe('o resultado sai pronto para liquidar', () => {
     expect(lista[0]!.mode).toBe('eightball')
   })
 })
+
+describe('reabrir não pode apagar o que já foi feito', () => {
+  test('abrir a mesma partida duas vezes é ignorado', () => {
+    const env = ambiente()
+    env.matches.open(MATCH, 'eightball', [ALICE, BOB])
+    env.matches.commit(ALICE, commitOf(nonceA))
+
+    // Segunda autenticação do mesmo jogador chamaria isto de novo. Se
+    // reabrisse, o compromisso da Alice sumiria e os dois ficariam presos até
+    // o prazo da revelação.
+    env.matches.open(MATCH, 'eightball', [ALICE, BOB])
+    env.matches.commit(BOB, commitOf(nonceB))
+
+    expect(env.matches.get(MATCH)).toBeDefined()
+  })
+
+  test('has enxerga a partida ainda pendente', () => {
+    const env = ambiente()
+    expect(env.matches.has(MATCH)).toBe(false)
+
+    env.matches.open(MATCH, 'eightball', [ALICE, BOB])
+
+    // `get` ainda devolve undefined aqui; é exatamente essa diferença que
+    // levaria a reabrir.
+    expect(env.matches.get(MATCH)).toBeUndefined()
+    expect(env.matches.has(MATCH)).toBe(true)
+  })
+})
+
+describe('reconectar reencontra a partida', () => {
+  test('devolve o índice e os jogadores antes de a partida nascer', () => {
+    const env = ambiente()
+    env.matches.open(MATCH, 'eightball', [ALICE, BOB])
+
+    const r = env.matches.resume(BOB)
+    expect(r?.you).toBe(1)
+    expect(r?.match).toBeNull()
+    expect(r?.players).toEqual([ALICE, BOB])
+  })
+
+  test('devolve a partida viva depois de começar', () => {
+    const env = jogando()
+    const r = env.matches.resume(ALICE)
+
+    expect(r?.you).toBe(0)
+    expect(r?.match).not.toBeNull()
+    expect(r?.match?.recorder?.seed).toHaveLength(32)
+  })
+
+  test('quem não está em partida nenhuma não reencontra nada', () => {
+    expect(ambiente().matches.resume('Carol')).toBeNull()
+  })
+})

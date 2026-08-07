@@ -59,6 +59,17 @@ export class Matches {
     return this.#byId.get(matchId)
   }
 
+  /**
+   * Esta partida já existe, mesmo que ainda esperando os compromissos?
+   *
+   * Diferente de `get`, que só enxerga partida já nascida. Quem só perguntasse
+   * por `get` reabriria uma partida pendente — e reabrir APAGA os compromissos
+   * já enviados, deixando os dois jogadores presos até o prazo da revelação.
+   */
+  has(matchId: string): boolean {
+    return this.#byId.has(matchId) || this.#pendentes.has(matchId)
+  }
+
   matchOf(address: string): { matchId: string; match: Match } | null {
     const id = this.#byPlayer.get(address)
     if (!id) return null
@@ -68,6 +79,58 @@ export class Matches {
 
   get active(): number {
     return this.#byId.size
+  }
+
+  /**
+   * Estado atual de um jogador, para ele reencontrar a partida ao reconectar.
+   *
+   * Indispensável, não conveniência: ir do lobby para a mesa abre um socket
+   * NOVO, e as mensagens que já passaram não voltam sozinhas. Sem isto o
+   * jogador chegaria na mesa e ficaria esperando um `match.begin` que nunca
+   * viria.
+   *
+   * Cobre os dois momentos: a partida ainda esperando os compromissos, e a
+   * partida já em andamento.
+   */
+  resume(address: string): {
+    matchId: string
+    mode: GameModeId
+    players: [string, string]
+    you: 0 | 1
+    /** Presente só se a partida já nasceu. */
+    match: Match | null
+    /** Este jogador já mandou o compromisso? */
+    committed: boolean
+  } | null {
+    const matchId = this.#byPlayer.get(address)
+    if (!matchId) return null
+
+    const vivo = this.#byId.get(matchId)
+    if (vivo) {
+      const you = vivo.indexOf(address)
+      if (you === null) return null
+      return {
+        matchId,
+        mode: vivo.mode,
+        players: [vivo.players[0].address, vivo.players[1].address],
+        you,
+        match: vivo,
+        committed: true,
+      }
+    }
+
+    const pendente = this.#pendentes.get(matchId)
+    if (!pendente) return null
+
+    const you = pendente.players[0] === address ? 0 : 1
+    return {
+      matchId,
+      mode: pendente.mode,
+      players: pendente.players,
+      you,
+      match: null,
+      committed: this.#commits.get(matchId)?.[you] !== null,
+    }
   }
 
   /** Lista para o painel de administração. */
@@ -90,6 +153,11 @@ export class Matches {
    * que o resto do código precise checar em todo lugar.
    */
   open(matchId: string, mode: GameModeId, players: [string, string]): void {
+    // Reabrir apagaria os compromissos já enviados. Quem chama deve conferir
+    // com `has`, mas a guarda fica aqui também porque o custo do erro é os
+    // dois jogadores travarem até o prazo.
+    if (this.has(matchId)) return
+
     this.#pendentes.set(matchId, { mode, players })
     this.#commits.set(matchId, [null, null])
     for (const p of players) this.#byPlayer.set(p, matchId)

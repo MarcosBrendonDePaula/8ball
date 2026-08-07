@@ -509,3 +509,25 @@ input:focus {
     animation-duration: 2s;
   }
 }
+
+/* Entrar na mesa é um link, não um botão, para o navegador tratá-lo como
+   navegação — abrir em outra aba, voltar e o menu de contexto funcionam de
+   graça. A aparência é copiada do botão porque o estilo está no ELEMENTO
+   `button`, e um `a` não o herda. */
+.botao-jogar {
+  display: block;
+  box-sizing: border-box;
+  font: 600 14px/1 var(--font);
+  color: #05170e;
+  background: linear-gradient(180deg, #63e09c, var(--chalk));
+  border-radius: 10px;
+  padding: 13px 18px;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+}
+.botao-jogar:hover {
+  filter: brightness(1.08);
+  color: #05170e;
+}

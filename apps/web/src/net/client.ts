@@ -104,17 +104,38 @@ export class GameClient {
 
   // -------------------------------------------------------------- partida
 
-  /** Compromisso com o nonce da quebra. Guarda o segredo para revelar depois. */
-  commitBreak(): void {
-    const nonce = crypto.getRandomValues(new Uint8Array(32))
+  /**
+   * Compromisso com o nonce da quebra.
+   *
+   * O nonce é GUARDADO no navegador, indexado pela partida. Isso não é cache:
+   * o compromisso acontece numa página e a revelação em outra, depois de o
+   * jogador navegar do lobby para a mesa. Sem persistir, a navegação geraria
+   * um nonce novo, o servidor manteria o compromisso antigo, e a revelação
+   * falharia — a partida travaria até o prazo e viraria reembolso.
+   *
+   * Reusa o nonce se já houver um para esta partida, pelo mesmo motivo.
+   */
+  commitBreak(matchId: string): void {
+    const guardado = localStorage.getItem(nonceKey(matchId))
+    const nonce = guardado ? fromHex(guardado) : crypto.getRandomValues(new Uint8Array(32))
+
+    if (!guardado) localStorage.setItem(nonceKey(matchId), toHex(nonce))
     this.#nonce = nonce
+
     void this.#commitHash(nonce).then((commit) => this.#send({ t: 'match.commit', commit }))
   }
 
   /** Revela o nonce guardado. Só funciona depois de `commitBreak`. */
-  revealBreak(): void {
-    if (!this.#nonce) return
-    this.#send({ t: 'match.reveal', nonce: toHex(this.#nonce) })
+  revealBreak(matchId: string): void {
+    const nonce = this.#nonce ?? readNonce(matchId)
+    if (!nonce) return
+    this.#send({ t: 'match.reveal', nonce: toHex(nonce) })
+  }
+
+  /** Esquece o segredo da partida. Chamado quando ela termina. */
+  forgetNonce(matchId: string): void {
+    localStorage.removeItem(nonceKey(matchId))
+    this.#nonce = null
   }
 
   shoot(shot: { angle: number; power: number; spinX: number; spinY: number }): void {
@@ -506,3 +527,13 @@ const MATCH_MESSAGES = new Set<ServerMessage['t']>([
 
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+
+const nonceKey = (matchId: string): string => `zinc.nonce.${matchId}`
+
+const readNonce = (matchId: string): Uint8Array | null => {
+  const hex = localStorage.getItem(nonceKey(matchId))
+  return hex ? fromHex(hex) : null
+}
+
+const fromHex = (hex: string): Uint8Array =>
+  Uint8Array.from(hex.match(/.{2}/g)?.map((b) => Number.parseInt(b, 16)) ?? [])
