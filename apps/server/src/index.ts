@@ -542,10 +542,32 @@ const server = Bun.serve<Session, never>({
       return Response.json({ nonce: issueNonce(address), host: url.host })
     }
 
+    /**
+     * Faucet de SOL de teste.
+     *
+     * Exige SESSÃO AUTENTICADA, e serve só o endereço dela. Antes aceitava
+     * qualquer endereço sem assinatura nenhuma: o cooldown era indexado pelo
+     * endereço, e endereços são de graça — bastava um laço gerando carteiras
+     * novas para esvaziar a carteira do faucet até a reserva. Foi demonstrado
+     * numa auditoria, com ~0,5 SOL extraídos.
+     */
     if (url.pathname === '/api/faucet' && req.method === 'POST') {
       return (async () => {
-        const body = (await req.json().catch(() => null)) as { address?: string } | null
-        const result = await requestFaucet(body?.address ?? '')
+        const token = req.headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
+
+        let endereco: string
+        try {
+          // O endereço vem da SESSÃO, não do corpo: quem pede recebe na própria
+          // carteira, e o cooldown volta a significar alguma coisa.
+          endereco = resumeSession(token)
+        } catch {
+          return Response.json(
+            { ok: false, error: 'Autentique a carteira antes de pedir SOL de teste.' },
+            { status: 401 },
+          )
+        }
+
+        const result = await requestFaucet(endereco)
         return Response.json(result, { status: result.ok ? 200 : 400 })
       })()
     }

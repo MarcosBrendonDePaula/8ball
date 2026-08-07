@@ -466,10 +466,16 @@ export class GameClient {
 
     this.#patch({ pending: 'faucet', error: null })
     try {
+      // O servidor tira o endereço da SESSÃO: mandá-lo no corpo não serviria
+      // de nada, e era exatamente o que permitia drenar o faucet com carteiras
+      // geradas em laço.
       const res = await fetch('/api/faucet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem(SESSION_KEY) ?? ''}`,
+        },
+        body: '{}',
       })
       const result = (await res.json()) as
         | { ok: true; signature: string; lamports: string }
