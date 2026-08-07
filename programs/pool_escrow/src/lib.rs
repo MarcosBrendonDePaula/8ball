@@ -260,10 +260,33 @@ pub mod pool_escrow {
             EscrowError::BadReveal
         );
 
-        let pot = game
+        let pot_bruto = game
             .stake
             .checked_mul(2)
             .ok_or(EscrowError::MathOverflow)?;
+
+        /*
+         * A PERMANÊNCIA É PAGA PELO POTE, não pela casa.
+         *
+         * O registro do replay fica na blockchain para sempre, e isso exige um
+         * depósito de isenção de aluguel proporcional ao tamanho. NÃO é uma
+         * cobrança recorrente — os lamports ficam parados na conta e voltariam
+         * se ela fosse fechada. Mas nunca fechamos o registro, porque ele é a
+         * prova da partida: na prática o capital fica imobilizado para sempre.
+         *
+         * Quem imobilizava era o referee — ou seja, nós. A conta estava
+         * invertida: numa mesa de 0.01 SOL o depósito é 0.00685 e o rake da
+         * casa é 0.001. Cada partida pequena travava quase sete vezes a
+         * receita dela, sem limite de acumulação.
+         *
+         * Descontar do pote põe o custo onde ele nasce e faz a conta escalar
+         * sozinha: quem aposta mais banca um replay maior sem esforço.
+         */
+        let aluguel = Rent::get()?.minimum_balance(MatchRecordV2::space(replay.len()));
+        let pot = pot_bruto
+            .checked_sub(aluguel)
+            .ok_or(EscrowError::PotTooSmallForRecord)?;
+
         let (winner_bps, house_bps, _) = ctx.accounts.config.splits();
         let (prize, treasury_cut, house_cut) = split_pot(pot, winner_bps, house_bps)?;
 
@@ -272,6 +295,9 @@ pub mod pool_escrow {
         let game_info = ctx.accounts.game.to_account_info();
         let treasury_info = ctx.accounts.treasury_vault.to_account_info();
         let house_info = ctx.accounts.house_vault.to_account_info();
+
+        // Devolve ao referee o aluguel que ele adiantou ao criar o registro.
+        move_lamports(&game_info, &ctx.accounts.referee.to_account_info(), aluguel)?;
 
         move_lamports(&game_info, &ctx.accounts.winner, prize)?;
         move_lamports(&game_info, &treasury_info, treasury_cut)?;
@@ -1163,6 +1189,8 @@ pub enum EscrowError {
     NotCancellable,
     #[msg("Esta partida não está em estado de liquidação.")]
     NotSettleable,
+    #[msg("O pote não cobre o aluguel do registro permanente do replay.")]
+    PotTooSmallForRecord,
     #[msg("O nonce revelado não corresponde ao compromisso feito no depósito.")]
     BadReveal,
     #[msg("O vencedor não é um dos jogadores desta partida.")]

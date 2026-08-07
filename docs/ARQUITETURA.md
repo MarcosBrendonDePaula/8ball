@@ -469,6 +469,30 @@ errada — sem imitar metade do web3.js.
 passo 3 ele não acredita no cliente: busca a conta `Match` on-chain e confere
 criador, valor e estado. Se não bater, a sala não existe.
 
+### Quem paga pela permanência
+
+O registro do replay fica na blockchain para sempre, e isso exige um depósito
+de isenção de aluguel proporcional ao tamanho — cerca de **0,006 SOL** por
+partida. **Não é cobrança recorrente**: os lamports ficam parados na conta e
+voltariam se ela fosse fechada. Mas o registro nunca é fechado, porque ele é a
+prova da partida. Na prática, o capital fica imobilizado para sempre.
+
+Quem imobilizava era o referee — ou seja, nós — e a conta estava invertida:
+
+| Entrada | Pote | Rake da casa | Depósito | Resultado |
+|---|---|---|---|---|
+| 0,01 | 0,02 | 0,001 | 0,0069 | **−0,0059** |
+| 0,05 | 0,10 | 0,005 | 0,0069 | −0,0019 |
+| 0,10 | 0,20 | 0,010 | 0,0069 | +0,0031 |
+| 1,00 | 2,00 | 0,100 | 0,0069 | +0,0931 |
+
+Cada partida pequena travava quase sete vezes a própria receita, sem limite de
+acumulação. Agora o depósito sai **do pote**, antes da divisão, e o referee é
+ressarcido do que adiantou. O custo fica onde nasce e a conta escala sozinha.
+
+O contrato recusa liquidar se o pote não cobrir o depósito, o que também define
+o piso prático da aposta.
+
 ### Liquidação
 
 ```
