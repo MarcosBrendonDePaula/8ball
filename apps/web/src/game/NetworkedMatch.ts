@@ -36,6 +36,8 @@ export type NetMatchState = {
   deadline: number | null
   /** Escolha aberta, se houver. */
   decision: { chooser: 0 | 1; kind: string; options: string[] } | null
+  /** Bola na mão aberta, se houver. */
+  ballInHand: { who: 0 | 1; region: 'anywhere' | 'kitchen' } | null
   opponentOffline: boolean
   resultado: { winner: 0 | 1 | null; reason: string } | null
   /** Divergência entre a nossa mesa e a do servidor. */
@@ -51,6 +53,7 @@ const INICIAL: NetMatchState = {
   turn: null,
   deadline: null,
   decision: null,
+  ballInHand: null,
   opponentOffline: false,
   resultado: null,
   desync: null,
@@ -109,6 +112,7 @@ export function connectMatch(
         controller.net = {
           you: state.you ?? 0,
           submit: (shot) => client.shoot(shot),
+          submitPlacement: (p) => client.place(p.x, p.y),
         }
         patch({
           fase: 'jogando',
@@ -123,7 +127,7 @@ export function connectMatch(
         // Chegou no meio: a mesa foi armada na quebra pelo `match.start` e
         // agora avança até onde a partida está de verdade.
         const r = decodeReplay(fromHex(msg.replay))
-        controller?.catchUp(r.shots, r.decisions)
+        controller?.catchUp(r.shots, r.decisions, r.placements)
         patch({ turn: msg.turn, deadline: msg.deadline, mensagem: 'Partida retomada.' })
         break
       }
@@ -141,6 +145,20 @@ export function connectMatch(
           desync: controller?.desync ?? null,
           mensagem: msg.status,
         })
+        break
+      }
+
+      case 'match.ballInHand':
+        patch({
+          ballInHand: { who: msg.who, region: msg.region },
+          deadline: msg.deadline,
+        })
+        break
+
+      case 'match.placed': {
+        // Só a do adversário é aplicada: a nossa já foi, por previsão.
+        if (msg.by !== state.you) controller?.applyRemotePlacement(msg.x, msg.y)
+        patch({ ballInHand: null, deadline: msg.deadline })
         break
       }
 

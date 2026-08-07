@@ -3,6 +3,7 @@ import { DEFAULT_CUE, CUE_ARCHETYPES, ENGINE_VERSION } from '@zinc-pool/engine-p
 import {
   HEADER_SIZE,
   MAX_DECISIONS,
+  MAX_PLACEMENTS,
   MAX_REPLAY_BYTES,
   MAX_SHOTS,
   REPLAY_VERSION,
@@ -37,6 +38,7 @@ const replayBase = (shots: Replay['shots'] = [], decisions: number[] = []): Repl
   cues: [DEFAULT_CUE, CUE_ARCHETYPES.pesado],
   shots,
   decisions,
+  placements: [],
 })
 
 const tacada = (over: Partial<Replay['shots'][number]> = {}) => ({
@@ -214,7 +216,7 @@ describe('decisões', () => {
   test('o replay cheio cabe no limite gravável on-chain', () => {
     // Casado com MAX_REPLAY_BYTES do programa em Rust. Se este teste falhar,
     // a liquidação de partidas longas passa a ser rejeitada pela blockchain.
-    expect(replaySize(MAX_SHOTS, MAX_DECISIONS)).toBe(MAX_REPLAY_BYTES)
+    expect(replaySize(MAX_SHOTS, MAX_DECISIONS, MAX_PLACEMENTS)).toBe(MAX_REPLAY_BYTES)
   })
 
   test('recusa mais decisões do que cabe', () => {

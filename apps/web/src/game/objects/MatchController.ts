@@ -23,6 +23,7 @@ import {
   fullOutcome,
   getGameMode,
   outcomeFromEvents,
+  placeCueBall,
   rerackTable,
   settleTable,
   type GameModeId,
@@ -136,13 +137,32 @@ export class MatchController extends Entity {
   net: {
     you: 0 | 1
     submit(shot: EncodedShot): void
+    submitPlacement(p: { x: number; y: number }): void
   } | null = null
 
   /** Divergência detectada entre a nossa mesa e a do servidor. */
   desync: string | null = null
 
+  /**
+   * Região onde a branca pode ser colocada, ou null.
+   *
+   * Enquanto houver bola na mão, a branca fica marcada como encaçapada e não
+   * há tacada possível: o jogador precisa escolher a posição primeiro, e essa
+   * escolha vai gravada no replay.
+   */
+  get ballInHand() {
+    // As regras mantêm o direito marcado até a próxima tacada ser julgada; o
+    // sinalizador registra que a posição desta vez já foi escolhida.
+    if (this.#placed) return null
+    return this.mode.ballInHandOf(this.rules as never)
+  }
+
+  /** A bola na mão desta vez já foi usada? */
+  #placed = false
+
   get canShoot(): boolean {
     if (this.phase !== 'aiming' || this.pending !== null) return false
+    if (this.ballInHand !== null) return false
     // Em rede, só na própria vez. O servidor recusaria de qualquer forma; a
     // guarda aqui é para a mira nem aparecer fora do turno.
     if (this.net && this.summary.turn !== this.net.you) return false
@@ -210,6 +230,7 @@ export class MatchController extends Entity {
       return
     }
 
+    this.#placed = false
     const tacada = this.recorder.take(angle, Math.max(0, Math.min(1, power)), spin)
 
     // Manda antes de simular: a rede leva mais tempo que a simulação, e o
@@ -266,6 +287,8 @@ export class MatchController extends Entity {
 
   /** Aplica uma tacada de fora e julga, sem animar. */
   #aplicarTacada(by: 0 | 1, shot: EncodedShot): void {
+    // A tacada encerra a bola na mão desta vez; a próxima falta abre outra.
+    this.#placed = false
     this.recorder.record(shot)
 
     // Roda de uma vez, sem animar: a tacada já aconteceu do outro lado, e
@@ -298,8 +321,13 @@ export class MatchController extends Entity {
    * escolha nossa. Há teste comparando uma mesa reconstruída com uma que jogou
    * ao vivo — se as duas divergirem, é aqui que se descobre.
    */
-  catchUp(shots: readonly EncodedShot[], decisions: readonly number[]): void {
+  catchUp(
+    shots: readonly EncodedShot[],
+    decisions: readonly number[],
+    placements: readonly { x: number; y: number }[] = [],
+  ): void {
     const pendentes = [...decisions]
+    const posicoes = [...placements]
 
     for (const shot of shots) {
       if (this.summary.finished) break
@@ -308,6 +336,15 @@ export class MatchController extends Entity {
         const escolha = pendentes.shift()
         if (escolha === undefined) break
         this.choose(escolha)
+      }
+
+      // Mesma ordem do verificador: decisão, depois bola na mão, depois a
+      // tacada. Sem a posição, a branca continuaria encaçapada e a física
+      // recusaria a tacada seguinte.
+      if (this.ballInHand) {
+        const onde = posicoes.shift()
+        if (!onde) break
+        this.applyRemotePlacement(onde.x, onde.y)
       }
 
       const turno = this.summary.turn
@@ -319,19 +356,30 @@ export class MatchController extends Entity {
     this.#capturePrevious()
   }
 
-  /** Recoloca a branca (bola na mão). */
+  /**
+   * Recoloca a branca numa bola na mão.
+   *
+   * A posição é QUANTIZADA pelo gravador antes de ir para a física, mesma
+   * regra da tacada: colocar num ponto e gravar outro faria o replay
+   * reproduzir uma partida diferente dali em diante.
+   */
   placeCueBall(x: number, y: number): void {
-    const branca = this.cueBall
-    if (!branca) return
+    if (this.ballInHand === null) return
 
-    const raio = F.toNumber(T.BALL_RADIUS)
-    const px = Math.max(raio, Math.min(F.toNumber(T.WIDTH) - raio, x))
-    const py = Math.max(raio, Math.min(F.toNumber(T.HEIGHT) - raio, y))
+    const onde = this.recorder.placeCueBall(x, y)
+    this.net?.submitPlacement(onde)
+    placeCueBall(this.table, F.from(onde.x), F.from(onde.y))
+    this.#placed = true
+    this.#capturePrevious()
+  }
 
-    V.set(branca.position, F.from(px), F.from(py))
-    V.set(branca.velocity, 0, 0)
-    V.set(branca.spin, 0, 0)
-    branca.pocketed = false
+  /** Posição vinda do servidor, na bola na mão do adversário. */
+  applyRemotePlacement(x: number, y: number): void {
+    if (this.ballInHand === null) return
+    this.recorder.placeCueBall(x, y)
+    placeCueBall(this.table, F.from(x), F.from(y))
+    this.#placed = true
+    this.#capturePrevious()
   }
 
   override fixedUpdate(): void {
@@ -376,7 +424,7 @@ export class MatchController extends Entity {
     this.lastRuling = ruling
     this.lastMessage = descreverJulgamento(ruling as Record<string, unknown>)
 
-    settleTable(this.table, ruling)
+    settleTable(this.table, ruling, { ballInHand: this.ballInHand !== null })
 
     this.phase = this.summary.finished ? 'finished' : 'aiming'
     this.#capturePrevious()

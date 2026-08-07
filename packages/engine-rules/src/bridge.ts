@@ -18,11 +18,13 @@
 
 import {
   CUE_BALL,
+  fixed as F,
   jitterFromSeed,
   rackBalls,
   table as T,
   vec as V,
   type CollisionEvent,
+  type Fixed,
   type TableState,
 } from '@zinc-pool/engine-physics'
 
@@ -115,22 +117,6 @@ export function fullOutcome(
 }
 
 /**
- * Devolve as bolas à mesa depois do julgamento.
- *
- * Duas coisas acontecem, nesta ordem:
- *
- *   - a branca encaçapada volta ao ponto de saque
- *   - as bolas que o julgamento mandou devolver voltam ao ponto de pé
- *
- * A ordem não é indiferente: as duas posições são fixas e distintas, então
- * inverter não muda nada hoje — mas o dia em que houver empilhamento de bolas
- * devolvidas, muda. Fica explícita para não virar acidente.
- *
- * ATENÇÃO — bola na mão não passa por aqui. Quando o jogador escolhe onde pôr
- * a branca, essa escolha não está gravada no replay e o verificador usa o ponto
- * canônico. Ver a limitação declarada em docs/PHYSICS-SPEC.md.
- */
-/**
  * Rearma o triângulo, no lugar.
  *
  * Usa o MESMO seed da partida, então a mesa remontada é idêntica à original —
@@ -147,9 +133,34 @@ export function rerackTable(table: TableState, seed: Uint8Array): void {
   table.balls.push(...nova.balls)
 }
 
-export function settleTable(table: TableState, ruling: unknown): void {
+/**
+ * Devolve as bolas à mesa depois do julgamento.
+ *
+ * Duas coisas acontecem, nesta ordem:
+ *
+ *   - a branca encaçapada volta ao ponto de saque
+ *   - as bolas que o julgamento mandou devolver voltam ao ponto de pé
+ *
+ * A ordem não é indiferente: as duas posições são fixas e distintas, então
+ * inverter não muda nada hoje — mas o dia em que houver empilhamento de bolas
+ * devolvidas, muda. Fica explícita para não virar acidente.
+ *
+ * BOLA NA MÃO — quando o jogador tem direito de escolher onde pôr a branca, ela
+ * NÃO é reposicionada aqui. Passe `ballInHand: true` e a branca fica marcada
+ * como encaçapada até alguém chamar `placeCueBall`.
+ *
+ * Pôr no ponto canônico e deixar o jogador mover depois pareceria equivalente,
+ * mas não é: o replay grava a posição ESCOLHIDA, e uma posição intermediária
+ * que a física também tenha visto abre espaço para o jogo e o verificador
+ * discordarem sobre o que aconteceu no meio.
+ */
+export function settleTable(
+  table: TableState,
+  ruling: unknown,
+  options: { ballInHand?: boolean } = {},
+): void {
   const branca = table.balls.find((b) => b.id === CUE_BALL)
-  if (branca?.pocketed) {
+  if (branca?.pocketed && !options.ballInHand) {
     branca.pocketed = false
     V.copy(branca.position, T.CUE_SPOT)
     V.set(branca.velocity, 0, 0)
@@ -166,4 +177,25 @@ export function settleTable(table: TableState, ruling: unknown): void {
     V.set(bola.velocity, 0, 0)
     V.set(bola.spin, 0, 0)
   }
+}
+
+/**
+ * Põe a branca onde o jogador escolheu.
+ *
+ * A posição é presa aos limites da mesa aqui, num lugar só: se cada ponta
+ * prendesse do seu jeito, uma coordenada logo fora da borda viraria posições
+ * diferentes no jogo e no verificador.
+ */
+export function placeCueBall(table: TableState, x: Fixed, y: Fixed): void {
+  const branca = table.balls.find((b) => b.id === CUE_BALL)
+  if (!branca) return
+
+  branca.pocketed = false
+  V.set(
+    branca.position,
+    F.clamp(x, T.BALL_RADIUS, T.WIDTH - T.BALL_RADIUS),
+    F.clamp(y, T.BALL_RADIUS, T.HEIGHT - T.BALL_RADIUS),
+  )
+  V.set(branca.velocity, 0, 0)
+  V.set(branca.spin, 0, 0)
 }

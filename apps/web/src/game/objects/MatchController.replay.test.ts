@@ -32,17 +32,34 @@ function aguardarTacada(match: MatchController): void {
  * Nada de aleatório: o teste precisa produzir a mesma partida toda vez, senão
  * uma falha rara vira impossível de reproduzir.
  */
-function jogarPartida(modo: GameModeId, semente: number, maxTacadas = 60): MatchController {
+/**
+ * Joga uma partida completa.
+ *
+ * O teto padrão é menor que o do formato porque estas tacadas são pseudo-
+ * aleatórias e faltam quase sempre — uma partida real tem muito menos faltas
+ * que isto. O objetivo aqui é exercitar o caminho, não simular um jogador bom.
+ */
+function jogarPartida(modo: GameModeId, semente: number, maxTacadas = 40): MatchController {
   const match = new MatchController(modo, semente)
 
   for (let i = 0; i < maxTacadas; i++) {
     if (match.summary.finished) break
     if (match.recorder.remaining <= 0) break
+    // Bola na mão consome do próprio teto; parar antes evita o erro de
+    // estouro, que é o comportamento certo mas não é o que este teste mede.
+    if (match.recorder.placementCount >= 40) break
 
     // Escolha pendente é resolvida antes de jogar — as regras recusam tacada
     // com pendência aberta. Escolhe sempre a primeira opção, que é
     // determinística e é justamente o caminho que o replay tem de reproduzir.
     if (match.pending) match.choose(0)
+
+    // Bola na mão: a posição é entrada do jogador e precisa ser escolhida
+    // antes da tacada. Determinística pelo índice, como as tacadas.
+    if (match.ballInHand) {
+      const x = match.ballInHand === 'kitchen' ? 0.3 : 0.4 + ((i * 7) % 10) / 20
+      match.placeCueBall(x, 0.2 + ((i * 3) % 8) / 20)
+    }
 
     // Varre ângulos e forças de forma espalhada, para as tacadas de fato
     // acontecerem em vez de repetirem sempre a mesma geometria.
@@ -193,7 +210,7 @@ describe('reconstruir do histórico chega ao mesmo lugar', () => {
 
       const r = aoVivo.recorder.build()
       const reconstruida = new MatchController(modo, r.seed)
-      reconstruida.catchUp(r.shots, r.decisions)
+      reconstruida.catchUp(r.shots, r.decisions, r.placements)
 
       expect(hashDaMesa(reconstruida)).toBe(hashDaMesa(aoVivo))
     })
@@ -203,7 +220,7 @@ describe('reconstruir do histórico chega ao mesmo lugar', () => {
 
       const r = aoVivo.recorder.build()
       const reconstruida = new MatchController(modo, r.seed)
-      reconstruida.catchUp(r.shots, r.decisions)
+      reconstruida.catchUp(r.shots, r.decisions, r.placements)
 
       // Não basta a mesa: de quem é a vez e quem já venceu vêm das regras.
       expect(reconstruida.summary.turn).toBe(aoVivo.summary.turn)
@@ -219,7 +236,7 @@ describe('reconstruir do histórico chega ao mesmo lugar', () => {
     const r = aoVivo.recorder.build()
 
     const reconstruida = new MatchController('eightball', r.seed)
-    reconstruida.catchUp(r.shots, r.decisions)
+    reconstruida.catchUp(r.shots, r.decisions, r.placements)
 
     const conferido = verifyReplay(decodeReplay(reconstruida.recorder.toBytes()))
     expect(conferido.stateHash).toBe(hashDaMesa(aoVivo))
@@ -232,5 +249,65 @@ describe('reconstruir do histórico chega ao mesmo lugar', () => {
     m.catchUp([], [])
 
     expect(hashDaMesa(m)).toBe(antes)
+  })
+})
+
+describe('bola na mão entra no replay', () => {
+  /**
+   * A última entrada do jogador que faltava gravar.
+   *
+   * Enquanto a posição não era gravada, a verificação usava o ponto de saque
+   * canônico: QUALQUER partida com uma falta era reproduzida errada, e o
+   * replay podia apontar outro vencedor sem nada acusar.
+   */
+  for (const modo of GAME_MODES) {
+    test(`${modo}: partidas com falta continuam verificáveis`, () => {
+      const match = jogarPartida(modo, 13, 30)
+      const r = match.recorder.build()
+
+      // A partida de teste precisa ter passado por pelo menos uma falta,
+      // senão o teste não está exercitando nada.
+      expect(r.placements.length).toBeGreaterThan(0)
+
+      const conferido = verifyReplay(decodeReplay(match.recorder.toBytes()))
+      expect(conferido.stateHash).toBe(hashDaMesa(match))
+      expect(conferido.stoppedBecause).toBeNull()
+    })
+  }
+
+  test('a posição escolhida muda a partida', () => {
+    // Se não mudasse, gravá-la seria desnecessário.
+    const a = new MatchController('eightball', 21)
+    const b = new MatchController('eightball', 21)
+
+    // Leva as duas até a mesma falta.
+    for (const m of [a, b]) {
+      for (let i = 0; i < 12 && !m.ballInHand && !m.summary.finished; i++) {
+        if (m.pending) m.choose(0)
+        m.shoot((i * 61 * Math.PI) / 180, 0.9)
+        aguardarTacada(m)
+      }
+    }
+
+    if (!a.ballInHand || !b.ballInHand) return
+
+    a.placeCueBall(0.4, 0.3)
+    b.placeCueBall(1.4, 0.7)
+
+    expect(hashDaMesa(a)).not.toBe(hashDaMesa(b))
+  })
+
+  test('não se taca com bola na mão pendente', () => {
+    const m = new MatchController('eightball', 21)
+    for (let i = 0; i < 12 && !m.ballInHand && !m.summary.finished; i++) {
+      if (m.pending) m.choose(0)
+      m.shoot((i * 61 * Math.PI) / 180, 0.9)
+      aguardarTacada(m)
+    }
+    if (!m.ballInHand) return
+
+    const antes = m.recorder.shotCount
+    m.shoot(0, 0.5)
+    expect(m.recorder.shotCount).toBe(antes)
   })
 })

@@ -7,6 +7,7 @@ import {
 import type { GameModeId } from '@zinc-pool/engine-rules'
 import {
   MAX_DECISIONS,
+  MAX_PLACEMENTS,
   MAX_SHOTS,
   REPLAY_VERSION,
   decodeAngle,
@@ -15,6 +16,8 @@ import {
   encodeAngle,
   encodePower,
   encodeSpin,
+  decodePlacement,
+  encodePlacement,
   encodeReplay,
   replaySize,
   type EncodedShot,
@@ -86,6 +89,7 @@ export class ShotRecorder {
 
   #shots: EncodedShot[] = []
   #decisions: number[] = []
+  #placements: { x: number; y: number }[] = []
 
   /**
    * @param seed  os 32 bytes do commit-reveal que definiram a quebra
@@ -113,9 +117,13 @@ export class ShotRecorder {
     return this.#decisions.length
   }
 
+  get placementCount(): number {
+    return this.#placements.length
+  }
+
   /** Tamanho atual em bytes, para a interface avisar antes de estourar. */
   get byteSize(): number {
-    return replaySize(this.#shots.length, this.#decisions.length)
+    return replaySize(this.#shots.length, this.#decisions.length, this.#placements.length)
   }
 
   /** Quantas tacadas ainda cabem. */
@@ -152,6 +160,21 @@ export class ShotRecorder {
     this.#decisions.push(optionIndex)
   }
 
+  /**
+   * Registra onde a branca foi colocada numa bola na mão.
+   *
+   * Devolve a posição QUANTIZADA, e é ela que a física deve receber — mesma
+   * regra da tacada. Colocar a bola num ponto e gravar outro faria o replay
+   * reproduzir uma partida diferente a partir dali.
+   */
+  placeCueBall(x: number, y: number): { x: number; y: number } {
+    if (this.#placements.length >= MAX_PLACEMENTS) throw new ReplayFullError(MAX_PLACEMENTS)
+
+    const quantizada = decodePlacement(encodePlacement({ x, y }))
+    this.#placements.push(quantizada)
+    return quantizada
+  }
+
   /** Atalho: quantiza, registra e devolve o que a física deve usar. */
   take(
     angle: number,
@@ -175,6 +198,7 @@ export class ShotRecorder {
       cues: [{ ...this.cues[0] }, { ...this.cues[1] }],
       shots: this.#shots.map((s) => ({ ...s })),
       decisions: [...this.#decisions],
+      placements: this.#placements.map((p) => ({ ...p })),
     }
   }
 

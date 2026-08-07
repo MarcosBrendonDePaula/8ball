@@ -1,5 +1,6 @@
 import { GameLoop } from './core/loop'
 import { Scene } from './core/scene'
+import { BallInHandObject } from './objects/BallInHandObject'
 import { BallsObject } from './objects/BallsObject'
 import { CueObject } from './objects/CueObject'
 import { HudObject } from './objects/HudObject'
@@ -37,6 +38,7 @@ export function createPoolScene(
   scene.add(new TableObject())
   scene.add(new BallsObject(match))
   scene.add(new CueObject(match))
+  scene.add(new BallInHandObject(match))
   scene.add(new HudObject(match))
 
   // O passo fixo é o MESMO da engine. Divergir aqui faria o cliente simular

@@ -146,6 +146,18 @@ export const ClientMessage = z.discriminatedUnion('t', [
     spinY: z.number().int().min(-127).max(127),
   }),
 
+  /**
+   * Onde a branca vai, numa bola na mão.
+   *
+   * Em metros. O servidor quantiza e devolve a posição efetiva — é ela que
+   * fica gravada no replay e que a física recebe dos dois lados.
+   */
+  z.object({
+    t: z.literal('match.place'),
+    x: z.number().finite(),
+    y: z.number().finite(),
+  }),
+
   /** Escolha numa decisão aberta pelas regras. */
   z.object({ t: z.literal('match.decide'), option: z.number().int().min(0).max(255) }),
   z.object({ t: z.literal('match.forfeit') }),
@@ -253,6 +265,23 @@ export const ServerMessage = z.discriminatedUnion('t', [
     status: z.string(),
     score: z.tuple([z.number(), z.number()]).nullable(),
     onTable: z.array(z.number()),
+  }),
+
+  /** Alguém tem bola na mão e precisa colocá-la antes de jogar. */
+  z.object({
+    t: z.literal('match.ballInHand'),
+    who: z.union([z.literal(0), z.literal(1)]),
+    region: z.enum(['anywhere', 'kitchen']),
+    deadline: z.number(),
+  }),
+
+  /** A branca foi colocada. A posição já vem quantizada. */
+  z.object({
+    t: z.literal('match.placed'),
+    by: z.union([z.literal(0), z.literal(1)]),
+    x: z.number(),
+    y: z.number(),
+    deadline: z.number().nullable(),
   }),
 
   /** Alguém precisa escolher antes da próxima tacada. */

@@ -315,7 +315,11 @@ describe('o replay da partida em rede é verificável', () => {
     agora += SHOT_CLOCK_MS
     m.tick(agora)
 
-    if (m.phase === 'playing') {
+    // A falta abre bola na mão; colocar a branca é obrigatório antes de jogar.
+    if (m.ballInHand !== null) {
+      m.place(m.players[m.summary!.turn].address, 0.5, 0.5, agora)
+    }
+    if (m.phase === 'playing' && m.ballInHand === null) {
       m.shoot(enderecoDaVez(m), tacada(90, 0.6), agora)
     }
 
@@ -329,5 +333,73 @@ describe('o replay da partida em rede é verificável', () => {
 
     expect(r.cues[0]).toEqual(DEFAULT_CUE)
     expect(r.cues[1]).toEqual(CUE_ARCHETYPES.pesado)
+  })
+})
+
+describe('bola na mão', () => {
+  /** Leva a partida até uma falta, para abrir a bola na mão. */
+  function comFalta(): { m: Match; agora: number } {
+    const m = partidaIniciada()
+    let agora = T0
+
+    for (let i = 0; i < 12 && m.ballInHand === null && m.phase === 'playing'; i++) {
+      agora += 1_000
+      m.shoot(enderecoDaVez(m), tacada((i * 61) % 360, 0.9), agora)
+    }
+    return { m, agora }
+  }
+
+  test('não se taca com a branca encaçapada', () => {
+    const { m, agora } = comFalta()
+    if (m.ballInHand === null) return
+
+    // A física recusaria de qualquer forma, mas com uma mensagem sobre estado
+    // interno. Esta diz o que o jogador precisa fazer.
+    expect(() => m.shoot(enderecoDaVez(m), tacada(0, 0.5), agora)).toThrow(/Coloque a branca/)
+  })
+
+  test('a posição é gravada no replay', () => {
+    const { m, agora } = comFalta()
+    if (m.ballInHand === null) return
+
+    const antes = m.recorder!.placementCount
+    m.place(m.players[m.summary!.turn].address, 1.2, 0.4, agora)
+
+    expect(m.recorder!.placementCount).toBe(antes + 1)
+    expect(m.ballInHand).toBeNull()
+  })
+
+  test('a bola na mão é de quem tem a vez', () => {
+    const { m, agora } = comFalta()
+    if (m.ballInHand === null) return
+
+    const outro = m.players[m.summary!.turn === 0 ? 1 : 0].address
+    expect(() => m.place(outro, 1, 0.5, agora)).toThrow(/não é sua/)
+  })
+
+  test('quem não coloca a tempo fica com o ponto de saque', () => {
+    const { m, agora } = comFalta()
+    if (m.ballInHand === null) return
+
+    const antes = m.recorder!.placementCount
+    m.tick(agora + SHOT_CLOCK_MS)
+
+    // A posição neutra também vai gravada: o verificador precisa dela como
+    // precisa de qualquer outra.
+    expect(m.recorder!.placementCount).toBe(antes + 1)
+  })
+
+  test('a partida com bola na mão continua verificável', () => {
+    const { m, agora } = comFalta()
+    if (m.ballInHand === null) return
+
+    m.place(m.players[m.summary!.turn].address, 0.6, 0.7, agora)
+    if (m.phase === 'playing' && m.ballInHand === null) {
+      m.shoot(enderecoDaVez(m), tacada(10, 0.7), agora + 1000)
+    }
+
+    const conferido = verifyReplay(decodeReplay(m.recorder!.toBytes()))
+    expect(conferido.shotsApplied).toBe(m.recorder!.shotCount)
+    expect(conferido.stoppedBecause).toBeNull()
   })
 })

@@ -41,6 +41,22 @@ type Session = { address: string | null; subscribed: boolean }
 
 const sockets = new Set<ServerWebSocket<Session>>()
 
+/**
+ * Uma carteira ainda tem alguma conexão aberta?
+ *
+ * Precisa ser contado, não deduzido de um socket só. O jogador navega do lobby
+ * para a mesa — o socket antigo fecha e o novo abre — e pode ter mais de uma
+ * aba. Marcar abandono ao fechar QUALQUER socket entregava a partida ao
+ * adversário no meio de uma navegação normal.
+ */
+function aindaConectado(address: string, ignorar?: ServerWebSocket<Session>): boolean {
+  for (const ws of sockets) {
+    if (ws === ignorar) continue
+    if (ws.data.address === address) return true
+  }
+  return false
+}
+
 const send = (ws: ServerWebSocket<Session>, message: ServerMessage): void => {
   ws.send(JSON.stringify(message))
 }
@@ -150,6 +166,31 @@ matches.subscribe((event) => {
         status: v.summary.status,
         score: v.summary.score,
         onTable: v.summary.onTable,
+      })
+      break
+    }
+
+    case 'ballInHand': {
+      const m = matches.get(event.matchId)
+      const regiao = m?.ballInHand
+      if (!m || !regiao) return
+      toMatch(event.matchId, {
+        t: 'match.ballInHand',
+        who: m.summary?.turn ?? 0,
+        region: regiao,
+        deadline: m.deadline ?? 0,
+      })
+      break
+    }
+
+    case 'placed': {
+      const m = matches.get(event.matchId)
+      toMatch(event.matchId, {
+        t: 'match.placed',
+        by: event.by,
+        x: event.x,
+        y: event.y,
+        deadline: m?.deadline ?? null,
       })
       break
     }
@@ -272,6 +313,17 @@ function reenviarPartida(ws: ServerWebSocket<Session>, address: string): void {
         replay: Buffer.from(r.match.recorder.toBytes()).toString('hex'),
         turn: r.match.turn,
         deadline: r.match.deadline,
+      })
+    }
+
+    // Bola na mão aberta: quem reconecta precisa vê-la.
+    const regiao = r.match.ballInHand
+    if (regiao) {
+      send(ws, {
+        t: 'match.ballInHand',
+        who: r.match.summary?.turn ?? 0,
+        region: regiao,
+        deadline: r.match.deadline ?? 0,
       })
     }
 
@@ -411,6 +463,11 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
         break
       }
 
+      case 'match.place': {
+        matches.place(address, msg.x, msg.y)
+        break
+      }
+
       case 'match.decide': {
         matches.decide(address, msg.option)
         break
@@ -514,7 +571,13 @@ const server = Bun.serve<Session, never>({
       // Na partida, porém, sumir tem consequência: começa a contar a
       // tolerância de abandono. Sem isso, quem está perdendo fecharia a aba e
       // prenderia o dinheiro do adversário até o prazo on-chain.
-      if (ws.data.address) matches.markOffline(ws.data.address)
+      //
+      // Só conta como sumir se NÃO sobrou nenhuma outra conexão da mesma
+      // carteira. O `ws` já saiu do conjunto acima, mas passa como ignorado
+      // por clareza: quem lê não precisa saber a ordem das duas linhas.
+      if (ws.data.address && !aindaConectado(ws.data.address, ws)) {
+        matches.markOffline(ws.data.address)
+      }
     },
   },
 })

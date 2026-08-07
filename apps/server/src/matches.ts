@@ -20,6 +20,8 @@ export type MatchEvent =
   | { t: 'start'; matchId: string; seed: Uint8Array }
   | { t: 'shot'; matchId: string; view: ReturnType<Match['shoot']> }
   | { t: 'decision'; matchId: string }
+  | { t: 'ballInHand'; matchId: string }
+  | { t: 'placed'; matchId: string; by: 0 | 1; x: number; y: number }
   | { t: 'decided'; matchId: string; chooser: 0 | 1; option: number; rerack: boolean }
   | { t: 'offline'; matchId: string; who: 0 | 1 }
   | { t: 'online'; matchId: string; who: 0 | 1 }
@@ -214,6 +216,14 @@ export class Matches {
     this.#afterAdvance(matchId, match)
   }
 
+  place(address: string, x: number, y: number): void {
+    const { matchId, match } = this.#require(address)
+    const quem = match.indexOf(address)!
+    const onde = match.place(address, x, y, this.now())
+
+    this.#emit({ t: 'placed', matchId, by: quem, x: onde.x, y: onde.y })
+  }
+
   decide(address: string, option: number): void {
     const { matchId, match } = this.#require(address)
     const quem = match.indexOf(address)!
@@ -276,6 +286,10 @@ export class Matches {
   #afterAdvance(matchId: string, match: Match): void {
     if (match.phase === 'deciding') {
       this.#emit({ t: 'decision', matchId })
+      return
+    }
+    if (match.phase === 'playing' && match.ballInHand !== null) {
+      this.#emit({ t: 'ballInHand', matchId })
       return
     }
     if (match.phase !== 'finished') return

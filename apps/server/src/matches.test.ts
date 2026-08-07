@@ -179,8 +179,8 @@ describe('o resultado sai pronto para liquidar', () => {
     env.matches.forfeit(ALICE)
 
     const fim = env.eventos.find((e) => e.t === 'end') as { result: { replay: Uint8Array } }
-    // Cabeçalho de 58 mais uma tacada de 5.
-    expect(fim.result.replay.length).toBe(63)
+    // Cabeçalho de 60 mais uma tacada de 5.
+    expect(fim.result.replay.length).toBe(65)
   })
 
   test('o painel enxerga a partida em andamento', () => {

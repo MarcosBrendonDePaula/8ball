@@ -31,7 +31,17 @@ const tacada = (grausDoAngulo: number, forca: number) => ({
   spinY: 0,
 })
 
-const replay = (shots: Replay['shots']): Replay => ({
+/**
+ * Posições de bola na mão para os testes.
+ *
+ * Sem elas a verificação PARA na primeira falta, e está certa em parar: a
+ * posição escolhida pelo jogador é entrada, e inventar um ponto canônico faria
+ * o replay reproduzir uma partida que ninguém jogou. Os testes que só querem
+ * chegar a um vencedor precisam fornecê-las.
+ */
+const POSICOES = Array.from({ length: 20 }, () => ({ x: 0.495, y: 0.495 }))
+
+const replay = (shots: Replay['shots'], placements = POSICOES): Replay => ({
   version: REPLAY_VERSION,
   mode: 'eightball',
   engineVersion: ENGINE_VERSION,
@@ -39,6 +49,7 @@ const replay = (shots: Replay['shots']): Replay => ({
   cues: [DEFAULT_CUE, DEFAULT_CUE],
   shots,
   decisions: [],
+  placements,
 })
 
 describe('reprodução', () => {
@@ -207,5 +218,62 @@ describe('compatibilidade da engine', () => {
   test('a versão viaja dentro do replay', () => {
     const bytes = encodeReplay(replay([tacada(0, 1)]))
     expect(decodeReplay(bytes).engineVersion).toBe(ENGINE_VERSION)
+  })
+})
+
+describe('bola na mão', () => {
+  test('sem a posição gravada, a verificação para em vez de inventar', () => {
+    // Este é o buraco que o formato v4 fechou. Antes, a verificação usava o
+    // ponto de saque canônico e seguia — reproduzindo uma partida diferente da
+    // que foi jogada, e podendo apontar outro vencedor sem nada acusar.
+    const muitas = Array.from({ length: 40 }, (_, i) => tacada((i * 53) % 360, 0.9))
+    const semPosicoes = verifyReplay(replay(muitas, []))
+    const comPosicoes = verifyReplay(replay(muitas))
+
+    expect(semPosicoes.shotsApplied).toBeLessThan(comPosicoes.shotsApplied)
+    expect(semPosicoes.stoppedBecause).toContain('bola na mão')
+  })
+
+  test('a posição muda o resultado — por isso ela vai gravada', () => {
+    const muitas = Array.from({ length: 30 }, (_, i) => tacada((i * 53) % 360, 0.9))
+
+    const a = verifyReplay(replay(muitas, POSICOES))
+    const b = verifyReplay(
+      replay(
+        muitas,
+        POSICOES.map(() => ({ x: 1.4, y: 0.3 })),
+      ),
+    )
+
+    expect(a.stateHash).not.toBe(b.stateHash)
+  })
+
+  test('a posição sobrevive à ida e volta pelos bytes', () => {
+    const r = replay([tacada(0, 1)], [{ x: 1.23, y: 0.45 }])
+    const volta = decodeReplay(encodeReplay(r))
+
+    // Quantizada em u16 sobre a mesa: 0,03 mm de resolução.
+    expect(volta.placements[0]!.x).toBeCloseTo(1.23, 4)
+    expect(volta.placements[0]!.y).toBeCloseTo(0.45, 4)
+  })
+})
+
+describe('a verificação é invariante à origem do replay', () => {
+  test('posição não quantizada dá o mesmo resultado que a gravada', () => {
+    // Um `Replay` montado à mão pode trazer posições com precisão total; o
+    // encode as quantiza. Se a verificação em memória usasse as originais e a
+    // dos bytes as quantizadas, as duas apontariam vencedores diferentes — e
+    // foi assim que a prova contra a devnet falhou.
+    const shots = Array.from({ length: 30 }, (_, i) => tacada((i * 53) % 360, 0.9))
+    const bruto = replay(
+      shots,
+      Array.from({ length: 20 }, (_, i) => ({ x: 0.4 + i / 37, y: 0.2 + i / 53 })),
+    )
+
+    const emMemoria = verifyReplay(bruto)
+    const daChain = verifyReplay(decodeReplay(encodeReplay(bruto)))
+
+    expect(daChain.stateHash).toBe(emMemoria.stateHash)
+    expect(daChain.winner).toBe(emMemoria.winner)
   })
 })

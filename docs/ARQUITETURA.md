@@ -558,15 +558,15 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**423 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**439 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 
 ### Limitações declaradas
 
 - Determinismo verificado em **duas** plataformas; Firefox e Safari não
-- O replay ainda **não grava a posição de bola na mão**; a verificação usa a
-  posição canônica, então só é fiel a partidas sem falta
+- Partida com mais de **80 tacadas ou 45 faltas** não cabe na transação de
+  liquidação. O gravador erra em vez de truncar
 - A especificação da física está ancorada on-chain, mas hospedada **no
   GitHub**; o hash é eterno, o endereço não. Arweave fecha o ciclo
 - O jitter da quebra tem **27 posições distintas por coordenada**, não 256: a

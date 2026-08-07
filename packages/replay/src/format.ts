@@ -51,10 +51,10 @@ import type { GameModeId } from '@zinc-pool/engine-rules'
  * verificador sabe QUANDO uma decisão acontece, então basta gravar QUAL foi.
  */
 
-export const REPLAY_VERSION = 3
+export const REPLAY_VERSION = 4
 
 /** Cabeçalho fixo, em bytes. */
-export const HEADER_SIZE = 58
+export const HEADER_SIZE = 60
 
 /** Cada tacada: ângulo u16, força u8, efeito i8 × 2. */
 export const SHOT_SIZE = 5
@@ -68,18 +68,36 @@ export const SHOT_SIZE = 5
  */
 export const TX_REPLAY_BUDGET = 721
 
+/** Cada posicionamento: x u16, y u16, sobre as dimensões da mesa. */
+export const PLACEMENT_SIZE = 4
+
+/**
+ * Teto de posicionamentos de bola na mão.
+ *
+ * No PIOR caso, toda tacada é falta e cada uma abre uma bola na mão — o teto
+ * seguro seria igual ao de tacadas, e aí cada tacada custaria 9 bytes em vez
+ * de 5, derrubando o limite para ~65 tacadas.
+ *
+ * 45 em 80 tacadas é o meio-termo: cobre uma partida ruim de verdade e ainda
+ * deixa folga no orçamento. Uma partida com mais de 45 faltas não cabe, e o
+ * gravador ERRA em vez de truncar — um replay truncado verifica sem reclamar e
+ * aponta o vencedor errado, que é o pior desfecho possível.
+ */
+export const MAX_PLACEMENTS = 45
+
 /**
  * Teto de tacadas por replay.
  *
  * Cabe no orçamento acima com folga para uma instrução de compute budget, que
  * é comum precisar acrescentar. Uma partida de 8-Ball costuma ter menos de 30
- * tacadas, então 120 é generoso.
+ * tacadas, então 80 é generoso — e cada tacada custa cinco vezes mais que uma
+ * decisão, então é daqui que sai o espaço para gravar bola na mão.
  *
  * O limite é explícito, e estourar dá erro, em vez de o encode truncar o fim
  * em silêncio: um replay truncado verifica sem reclamar e aponta o vencedor
  * errado — o pior desfecho possível para uma auditoria.
  */
-export const MAX_SHOTS = 120
+export const MAX_SHOTS = 80
 
 /**
  * Teto de decisões por replay.
@@ -96,7 +114,8 @@ export const MAX_DECISIONS = 24
  * liquidação falha só nas partidas longas — o pior tipo de bug, porque passa em
  * todo teste curto e aparece em produção com dinheiro na mesa.
  */
-export const MAX_REPLAY_BYTES = HEADER_SIZE + MAX_SHOTS * SHOT_SIZE + MAX_DECISIONS
+export const MAX_REPLAY_BYTES =
+  HEADER_SIZE + MAX_SHOTS * SHOT_SIZE + MAX_DECISIONS + MAX_PLACEMENTS * PLACEMENT_SIZE
 
 const MODE_CODES: Record<GameModeId, number> = { eightball: 0, sinuca: 1 }
 const MODE_BY_CODE: Record<number, GameModeId> = { 0: 'eightball', 1: 'sinuca' }
@@ -133,6 +152,14 @@ export type Replay = {
    * imensa maioria das partidas.
    */
   decisions: number[]
+  /**
+   * Onde a branca foi colocada, a cada bola na mão, na ordem.
+   *
+   * Em metros, já dentro dos limites da mesa. O encode quantiza para u16 por
+   * eixo — e, como toda entrada do jogador, é o valor QUANTIZADO que a física
+   * precisa receber, não o original.
+   */
+  placements: { x: number; y: number }[]
 }
 
 export class ReplayFormatError extends Error {
@@ -165,6 +192,33 @@ export const encodeSpin = (spin: number): number =>
 
 export const decodeSpin = (value: number): number => value / 127
 
+/**
+ * Dimensões da mesa, para quantizar a posição da bola na mão.
+ *
+ * Repetidas aqui em vez de importadas de `table.ts` de propósito: o formato do
+ * replay precisa ser estável POR VERSÃO, e a geometria pertence à versão da
+ * física. Se a mesa mudar de tamanho numa física v3, os replays v4 antigos
+ * continuam sendo lidos com estas medidas — que são as que valiam quando eles
+ * foram gravados.
+ */
+export const TABLE_WIDTH_M = 1.98
+export const TABLE_HEIGHT_M = 0.99
+
+const quantizar = (valor: number, extensao: number): number =>
+  Math.max(0, Math.min(65535, Math.round((valor / extensao) * 65535)))
+
+const desquantizar = (bruto: number, extensao: number): number => (bruto / 65535) * extensao
+
+export const encodePlacement = (p: { x: number; y: number }): { x: number; y: number } => ({
+  x: quantizar(p.x, TABLE_WIDTH_M),
+  y: quantizar(p.y, TABLE_HEIGHT_M),
+})
+
+export const decodePlacement = (b: { x: number; y: number }): { x: number; y: number } => ({
+  x: desquantizar(b.x, TABLE_WIDTH_M),
+  y: desquantizar(b.y, TABLE_HEIGHT_M),
+})
+
 // -------------------------------------------------------------- serialização
 
 export function encodeReplay(replay: Replay): Uint8Array {
@@ -189,8 +243,18 @@ export function encodeReplay(replay: Replay): Uint8Array {
     }
   }
 
+  const placements = replay.placements ?? []
+  if (placements.length > MAX_PLACEMENTS) {
+    throw new ReplayFormatError(
+      `Replay com ${placements.length} posicionamentos passa do limite de ${MAX_PLACEMENTS}.`,
+    )
+  }
+
   const bytes = new Uint8Array(
-    HEADER_SIZE + replay.shots.length * SHOT_SIZE + decisions.length,
+    HEADER_SIZE +
+      replay.shots.length * SHOT_SIZE +
+      decisions.length +
+      placements.length * PLACEMENT_SIZE,
   )
   const view = new DataView(bytes.buffer)
 
@@ -204,6 +268,8 @@ export function encodeReplay(replay: Replay): Uint8Array {
   escreverTaco(view, 46, replay.cues[1])
 
   view.setUint16(56, replay.shots.length, true)
+  bytes[58] = placements.length
+  bytes[59] = 0 // reservado
 
   let offset = HEADER_SIZE
   for (const shot of replay.shots) {
@@ -217,6 +283,13 @@ export function encodeReplay(replay: Replay): Uint8Array {
   for (const escolha of decisions) {
     bytes[offset] = escolha
     offset++
+  }
+
+  for (const p of placements) {
+    const q = encodePlacement(p)
+    view.setUint16(offset, q.x, true)
+    view.setUint16(offset + 2, q.y, true)
+    offset += PLACEMENT_SIZE
   }
 
   return bytes
@@ -242,15 +315,16 @@ export function decodeReplay(bytes: Uint8Array): Replay {
 
   const engineVersion = bytes[2]!
   const nDecisoes = bytes[3]!
+  const nPosicoes = bytes[58]!
   const seed = bytes.slice(4, 36)
   const cues: [CueParams, CueParams] = [lerTaco(view, 36), lerTaco(view, 46)]
 
   const total = view.getUint16(56, true)
-  const esperado = HEADER_SIZE + total * SHOT_SIZE + nDecisoes
+  const esperado = HEADER_SIZE + total * SHOT_SIZE + nDecisoes + nPosicoes * PLACEMENT_SIZE
   if (bytes.length !== esperado) {
     throw new ReplayFormatError(
-      `Replay diz ter ${total} tacadas e ${nDecisoes} decisões ` +
-        `(${esperado} bytes) mas tem ${bytes.length}.`,
+      `Replay diz ter ${total} tacadas, ${nDecisoes} decisões e ${nPosicoes} ` +
+        `posicionamentos (${esperado} bytes) mas tem ${bytes.length}.`,
     )
   }
 
@@ -268,7 +342,16 @@ export function decodeReplay(bytes: Uint8Array): Replay {
   const inicioDecisoes = HEADER_SIZE + total * SHOT_SIZE
   const decisions = Array.from(bytes.slice(inicioDecisoes, inicioDecisoes + nDecisoes))
 
-  return { version, mode, engineVersion, seed, cues, shots, decisions }
+  const inicioPosicoes = inicioDecisoes + nDecisoes
+  const placements: { x: number; y: number }[] = []
+  for (let i = 0; i < nPosicoes; i++) {
+    const o = inicioPosicoes + i * PLACEMENT_SIZE
+    placements.push(
+      decodePlacement({ x: view.getUint16(o, true), y: view.getUint16(o + 2, true) }),
+    )
+  }
+
+  return { version, mode, engineVersion, seed, cues, shots, decisions, placements }
 }
 
 function escreverTaco(view: DataView, offset: number, cue: CueParams): void {
@@ -290,5 +373,5 @@ function lerTaco(view: DataView, offset: number): CueParams {
 }
 
 /** Tamanho que o replay terá, sem serializar. */
-export const replaySize = (shotCount: number, decisionCount = 0): number =>
-  HEADER_SIZE + shotCount * SHOT_SIZE + decisionCount
+export const replaySize = (shotCount: number, decisionCount = 0, placementCount = 0): number =>
+  HEADER_SIZE + shotCount * SHOT_SIZE + decisionCount + placementCount * PLACEMENT_SIZE

@@ -67,6 +67,18 @@ export type GameMode<TState = unknown, TOutcome = unknown, TRuling = unknown> = 
    * direito que a regra lhe dá.
    */
   pendingOf(state: TState): PendingDecision | null
+  /**
+   * O jogador da vez pode reposicionar a branca?
+   *
+   * `null` quando não; a região quando sim. Precisa estar no contrato comum
+   * porque quem coloca a bola é a interface, e ela não conhece o estado
+   * concreto de nenhuma modalidade.
+   *
+   * Isto também decide o que vai para o replay: uma posição escolhida pelo
+   * jogador é ENTRADA, e entrada não gravada faz a verificação reproduzir
+   * outra partida.
+   */
+  ballInHandOf(state: TState): BallInHandRegion | null
   /** Aplica a escolha do jogador e libera a próxima tacada. */
   resolve(state: TState, optionIndex: number): DecisionOutcome<TState>
   /** Desistência ou W.O. por tempo. */
@@ -92,6 +104,14 @@ export type PendingDecision = {
   /** Rótulos das opções, na ordem em que são numeradas. */
   options: readonly string[]
 }
+
+/**
+ * Onde a branca pode ser colocada.
+ *
+ * `kitchen` é a área atrás da linha da cabeça, para onde a WPA manda a bola
+ * depois de falta na quebra. `anywhere` é qualquer ponto livre da mesa.
+ */
+export type BallInHandRegion = 'anywhere' | 'kitchen'
 
 export type DecisionOutcome<TState> = {
   state: TState
@@ -161,6 +181,7 @@ const eightballMode: GameMode<
     if (!p) return null
     return { chooser: p.chooser, kind: p.kind, options: BREAK_CHOICES_LABELS }
   },
+  ballInHandOf: (state) => (state.ballInHand.active ? state.ballInHand.region : null),
   resolve: (state, optionIndex) => {
     const escolha = BREAK_CHOICES[optionIndex]
     if (!escolha) {
@@ -214,6 +235,9 @@ const sinucaMode: GameMode<
   resolve: () => {
     throw new Error('A sinuca brasileira não tem decisões pendentes.')
   },
+  // A sinuca não tem a regra da cozinha: falta dá a bola na mão em qualquer
+  // ponto livre.
+  ballInHandOf: (state) => (state.ballInHand ? 'anywhere' : null),
   forfeit: (state, quem) => sinuca.forfeitSinuca(state, quem),
   winnerOf: (state) => state.winner,
   summarize: (state) => {

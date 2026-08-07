@@ -143,6 +143,10 @@ export class GameClient {
     this.#send({ t: 'match.shoot', ...shot })
   }
 
+  place(x: number, y: number): void {
+    this.#send({ t: 'match.place', x, y })
+  }
+
   decide(option: number): void {
     this.#send({ t: 'match.decide', option })
   }
@@ -507,6 +511,8 @@ export type MatchMessage = Extract<
       | 'match.start'
       | 'match.history'
       | 'match.shot'
+      | 'match.ballInHand'
+      | 'match.placed'
       | 'match.decision'
       | 'match.decided'
       | 'match.opponentOffline'
@@ -521,6 +527,8 @@ const MATCH_MESSAGES = new Set<ServerMessage['t']>([
   'match.start',
   'match.history',
   'match.shot',
+  'match.ballInHand',
+  'match.placed',
   'match.decision',
   'match.decided',
   'match.opponentOffline',

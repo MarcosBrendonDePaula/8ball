@@ -81,7 +81,16 @@ const replay: Replay = {
   seed,
   cues: [DEFAULT_CUE, DEFAULT_CUE],
   shots,
-  decisions: [],
+  // Quebra irregular abre escolha ao adversário; sem ela a verificação para.
+  // Zero é "aceitar a mesa", a opção conservadora.
+  decisions: Array.from({ length: 24 }, () => 0),
+  // Bola na mão é entrada do jogador, como a tacada. Sem as posições, a
+  // verificação PARA na primeira falta em vez de inventar um ponto — que é
+  // exatamente o que o formato v4 passou a garantir.
+  placements: Array.from({ length: 45 }, (_, i) => ({
+    x: 0.4 + ((i * 7) % 20) / 20,
+    y: 0.2 + ((i * 3) % 12) / 20,
+  })),
 }
 
 const bytes = encodeReplay(replay)

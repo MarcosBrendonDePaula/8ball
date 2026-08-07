@@ -7,6 +7,7 @@ import {
   hashState,
   jitterFromSeed,
   rackBalls,
+  table as T,
   type CueParams,
   type TableState,
 } from '@zinc-pool/engine-physics'
@@ -14,8 +15,10 @@ import {
   fullOutcome,
   getGameMode,
   outcomeFromEvents,
+  placeCueBall,
   rerackTable,
   settleTable,
+  type BallInHandRegion,
   type GameModeId,
   type MatchSummary,
   type PendingDecision,
@@ -195,6 +198,22 @@ export class Match {
     return this.rules === null ? null : this.modeApi.pendingOf(this.rules as never)
   }
 
+  /**
+   * Região onde a branca pode ser colocada, ou null se não há o que colocar.
+   *
+   * As regras mantêm o direito marcado até a PRÓXIMA tacada ser julgada, então
+   * consultá-las direto diria "bola na mão" mesmo depois de o jogador já ter
+   * colocado. O sinalizador abaixo registra o consumo, e é zerado a cada
+   * tacada — uma bola na mão, uma posição.
+   */
+  get ballInHand(): BallInHandRegion | null {
+    if (this.rules === null || this.#placed) return null
+    return this.modeApi.ballInHandOf(this.rules as never)
+  }
+
+  /** A bola na mão desta vez já foi usada? */
+  #placed = false
+
   /** De quem é a vez, ou null se a partida não está em andamento. */
   get turn(): 0 | 1 | null {
     if (this.phase === 'deciding') return this.pending?.chooser ?? null
@@ -275,6 +294,11 @@ export class Match {
     if (this.turn !== quem) {
       throw new MatchRuleError('not_your_turn', 'Não é a sua vez.')
     }
+    if (this.ballInHand !== null) {
+      // A física recusaria de qualquer forma — a branca está encaçapada — mas
+      // com uma mensagem sobre estado interno. Esta diz o que fazer.
+      throw new MatchRuleError('wrong_phase', 'Coloque a branca antes de jogar.')
+    }
     validarTacada(shot)
 
     // Só a tacada VOLUNTÁRIA zera a contagem de faltas de tempo. A tacada nula
@@ -290,6 +314,9 @@ export class Match {
   #applyShot(quem: 0 | 1, shot: EncodedShot, now: number): ShotResultView {
     const table = this.table!
     const recorder = this.recorder!
+
+    // A tacada encerra a bola na mão desta vez; a próxima falta abre outra.
+    this.#placed = false
 
     recorder.record(shot)
 
@@ -307,7 +334,7 @@ export class Match {
     const outcome = fullOutcome(outcomeFromEvents(resultado.events))
     const { state, ruling } = this.modeApi.play(this.rules as never, outcome as never)
     this.rules = state
-    settleTable(table, ruling)
+    settleTable(table, ruling, { ballInHand: this.ballInHand !== null })
 
     this.#enterTurn(now)
 
@@ -318,6 +345,35 @@ export class Match {
       ruling,
       summary: this.modeApi.summarize(this.rules as never),
     }
+  }
+
+  /**
+   * Põe a branca onde o jogador escolheu, numa bola na mão.
+   *
+   * A posição é quantizada pelo gravador e é a QUANTIZADA que a física recebe.
+   * Sem esta etapa a partida seguiria de um ponto que ninguém escolheu — e o
+   * verificador, que lê a posição do replay, chegaria a outra mesa.
+   */
+  place(address: string, x: number, y: number, now: number): { x: number; y: number } {
+    const quem = this.#requirePlayer(address)
+    if (this.phase !== 'playing' || this.ballInHand === null) {
+      throw new MatchRuleError('wrong_phase', 'Não há bola na mão agora.')
+    }
+    if (this.summary?.turn !== quem) {
+      throw new MatchRuleError('not_your_turn', 'A bola na mão não é sua.')
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new MatchRuleError('bad_shot', 'Posição inválida.')
+    }
+
+    const onde = this.recorder!.placeCueBall(x, y)
+    placeCueBall(this.table!, F.from(onde.x), F.from(onde.y))
+    this.#placed = true
+
+    // Colocar a bola é ação voluntária: reinicia o relógio como uma tacada.
+    this.#clockFouls[quem] = 0
+    this.deadline = now + SHOT_CLOCK_MS
+    return onde
   }
 
   /**
@@ -443,6 +499,19 @@ export class Match {
       this.decide(this.players[quem].address, 0, now)
       return
     }
+
+    // Bola na mão pendente: quem não coloca a tempo fica com o ponto de saque,
+    // que é a posição neutra. Precisa acontecer antes da tacada nula, senão a
+    // física receberia a branca ainda encaçapada.
+    if (this.ballInHand !== null) {
+      const onde = this.recorder!.placeCueBall(
+        F.toNumber(T.CUE_SPOT.x),
+        F.toNumber(T.CUE_SPOT.y),
+      )
+      placeCueBall(this.table!, F.from(onde.x), F.from(onde.y))
+      this.#placed = true
+    }
+
     this.#applyShot(quem, TACADA_NULA, now)
   }
 

@@ -14,13 +14,16 @@ import {
   fullOutcome,
   getGameMode,
   outcomeFromEvents,
+  placeCueBall,
   rerackTable,
   settleTable,
 } from '@zinc-pool/engine-rules'
 import {
   decodeAngle,
+  decodePlacement,
   decodePower,
   decodeSpin,
+  encodePlacement,
   encodeReplay,
   type Replay,
 } from './format'
@@ -111,6 +114,16 @@ export function verifyReplay(replay: Replay): VerificationResult {
 
   const decisoes = [...(replay.decisions ?? [])]
 
+  // As posições passam pela grade do formato ANTES de serem usadas.
+  //
+  // Sem isto, verificar um `Replay` montado à mão daria um resultado e
+  // verificar os MESMOS bytes depois de gravados daria outro — porque o encode
+  // quantiza e a verificação em memória não. Foi exatamente o que aconteceu:
+  // a prova contra a chain falhou dizendo que o vencedor era outro.
+  //
+  // Normalizar aqui torna a verificação invariante a como o replay chegou.
+  const posicoes = (replay.placements ?? []).map((p) => decodePlacement(encodePlacement(p)))
+
   for (const shot of replay.shots) {
     const resumo = mode.summarize(rules as never)
     if (resumo.finished) {
@@ -132,6 +145,17 @@ export function verifyReplay(replay: Replay): VerificationResult {
       if (resolvida.rerack) rerackTable(table, replay.seed)
     }
 
+    // Bola na mão: a posição escolhida pelo jogador é entrada, e sem ela a
+    // partida seguiria de um ponto que ninguém escolheu.
+    if (mode.ballInHandOf(rules as never)) {
+      const onde = posicoes.shift()
+      if (!onde) {
+        parou = 'faltou no replay a posição da bola na mão'
+        break
+      }
+      placeCueBall(table, F.from(onde.x), F.from(onde.y))
+    }
+
     // O taco é o do jogador da VEZ — cada um joga com o seu. Relido depois da
     // decisão, que pode ter passado a vez para o outro.
     const cue = clampCue(replay.cues[mode.summarize(rules as never).turn])
@@ -151,7 +175,9 @@ export function verifyReplay(replay: Replay): VerificationResult {
     const outcome = fullOutcome(outcomeFromEvents(resultado.events))
     const { state, ruling } = mode.play(rules as never, outcome as never)
     rules = state
-    settleTable(table, ruling)
+    settleTable(table, ruling, {
+      ballInHand: mode.ballInHandOf(rules as never) !== null,
+    })
 
     aplicadas++
   }
