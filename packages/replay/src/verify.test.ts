@@ -307,7 +307,7 @@ describe('replays antigos continuam auditáveis', () => {
   const contarDeclaracoes = (bytes: Uint8Array): number => bytes[59] ?? 0
 
   test('o v4 é lido e verificado', () => {
-    const atual = encodeReplay(replay(shots, [], []))
+    const atual = encodeReplay(replay(shots, []))
     const antigo = decodeReplay(comoVersao(atual, 4))
 
     expect(antigo.version).toBe(4)
@@ -317,7 +317,7 @@ describe('replays antigos continuam auditáveis', () => {
   test('o v4 não exige caçapa declarada, porque não a gravava', () => {
     // Exigir declaração num replay que nunca a teve pararia a verificação
     // justamente na tacada que decide a partida.
-    const atual = encodeReplay(replay(shots, POSICOES, []))
+    const atual = encodeReplay(replay(shots, POSICOES))
     const antigo = decodeReplay(comoVersao(atual, 4))
 
     // `stoppedBecause` é null quando nada interrompeu, então a checagem

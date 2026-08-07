@@ -91,10 +91,10 @@ describe('o que o varredor não toca', () => {
     expect(r.vencidas).toBe(0)
   })
 
-  test('mesa apenas aguardando oponente', async () => {
-    // Não há o que devolver ao oponente: esse caso é `cancel_match`.
-    const r = await sweepExpired(deps([mesa({ state: 'waiting' })]))
+  test('mesa aguardando ainda no prazo', async () => {
+    const r = await sweepExpired(deps([mesa({ state: 'waiting', deadline: AGORA_S + 600 })]))
 
+    expect(r.canceladas).toBe(0)
     expect(r.vencidas).toBe(0)
   })
 
@@ -153,5 +153,45 @@ describe('o que ele faz', () => {
 
     expect(r.erros).toHaveLength(1)
     expect(r.destravadas).toBe(1)
+  })
+})
+
+describe('salas sem oponente', () => {
+  test('vencida sem ninguém entrar é devolvida ao criador', async () => {
+    // Antes, só as comprometidas eram tratadas: uma sala em que ninguém entrou
+    // ficava com o depósito preso até alguém abrir o painel e cancelar.
+    const r = await sweepExpired(deps([mesa({ state: 'waiting' })]))
+
+    expect(r.canceladas).toBe(1)
+    expect(r.destravadas).toBe(0)
+  })
+
+  test('não precisa consultar partida viva', async () => {
+    // Sala sem oponente não é partida; perguntar não faria sentido.
+    let perguntou = false
+    await sweepExpired(
+      deps([mesa({ state: 'waiting' })], {
+        isLive: () => {
+          perguntou = true
+          return true
+        },
+      }),
+    )
+
+    expect(perguntou).toBe(false)
+  })
+
+  test('o teto da passada vale para os dois tipos juntos', async () => {
+    const muitas = [
+      ...Array.from({ length: 4 }, (_, i) =>
+        mesa({ state: 'waiting', matchId: Uint8Array.from({ length: 16 }, () => i + 1) }, i),
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        mesa({ matchId: Uint8Array.from({ length: 16 }, () => i + 90) }, i + 90),
+      ),
+    ]
+    const r = await sweepExpired(deps(muitas))
+
+    expect(r.canceladas + r.destravadas).toBe(MAX_PER_SWEEP)
   })
 })

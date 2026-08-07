@@ -6,14 +6,17 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js'
-import { claimTimeoutIx, fetchAllMatches } from '@zinc-pool/chain-client'
+import { cancelMatchIx, claimTimeoutIx, fetchAllMatches } from '@zinc-pool/chain-client'
 
 /**
  * Varredor de mesas vencidas.
  *
- * Uma mesa em que os dois depositaram e ninguém liquidou fica com o dinheiro
- * preso na PDA. O contrato já resolve isso — `claim_timeout` devolve a entrada
- * de cada um depois do prazo — mas alguém precisa CHAMAR.
+ * Duas situações prendem dinheiro na PDA, e as duas passam por aqui:
+ *
+ *   COMPROMETIDA  os dois depositaram e ninguém liquidou → `claim_timeout`
+ *   AGUARDANDO    o criador depositou e ninguém entrou   → `cancel_match`
+ *
+ * O contrato já resolve as duas depois do prazo, mas alguém precisa CHAMAR.
  *
  * Até aqui esse alguém era uma pessoa clicando "Destravar" no painel. Se
  * ninguém abrisse o painel, o dinheiro simplesmente ficava lá.
@@ -30,8 +33,9 @@ import { claimTimeoutIx, fetchAllMatches } from '@zinc-pool/chain-client'
  *   }
  *
  * Quem aciona NÃO escolhe o destino: `close = creator` e os `address =` fixam
- * as duas contas contra o que está gravado na partida. O varredor não pode
- * desviar um lamport — ele só paga a taxa da transação. Por isso pode rodar
+ * as contas contra o que está gravado na partida. O varredor não pode desviar
+ * um lamport — ele só paga a taxa da transação. O `cancel_match` tem a mesma
+ * propriedade e a mesma liberação depois do prazo. Por isso pode rodar
  * com a chave do referee, que já existe no servidor e já só paga taxa; não é
  * preciso criar nem guardar nenhuma chave nova.
  */
@@ -56,6 +60,8 @@ export type SweepReport = {
   examinadas: number
   vencidas: number
   destravadas: number
+  /** Quantas eram salas sem oponente, devolvidas ao criador. */
+  canceladas: number
   puladas: { motivo: string; pda: string }[]
   erros: { pda: string; erro: string }[]
 }
@@ -98,6 +104,7 @@ export async function sweepExpired(deps: SweeperDeps): Promise<SweepReport> {
     examinadas: 0,
     vencidas: 0,
     destravadas: 0,
+    canceladas: 0,
     puladas: [],
     erros: [],
   }
@@ -106,14 +113,37 @@ export async function sweepExpired(deps: SweeperDeps): Promise<SweepReport> {
   report.examinadas = mesas.length
 
   for (const mesa of mesas) {
-    // Só mesa com os dois depósitos tem o que devolver. `waiting` se resolve
-    // por `cancel_match`, que é outro caminho.
-    if (mesa.state !== 'committed') continue
     if (agora < mesa.deadline + GRACE_AFTER_DEADLINE_S) continue
 
     report.vencidas++
 
     const id = hex(mesa.matchId)
+
+    // Sala que nunca recebeu oponente: o depósito do criador volta inteiro.
+    // Nada aqui é partida, então não há o que consultar sobre jogo vivo.
+    if (mesa.state === 'waiting') {
+      if (report.destravadas + report.canceladas >= MAX_PER_SWEEP) {
+        report.puladas.push({ motivo: 'limite da passada', pda: mesa.pda.toBase58() })
+        continue
+      }
+      try {
+        const enviar = deps.send ?? envioPadrao(deps)
+        const assinatura = await enviar(
+          cancelMatchIx({
+            signer: deps.payer.publicKey,
+            creator: mesa.creator,
+            matchId: mesa.matchId,
+          }),
+        )
+        report.canceladas++
+        deps.log?.(`[sweeper] sala sem oponente devolvida ${id.slice(0, 8)}… · ${assinatura}`)
+      } catch (err) {
+        report.erros.push({ pda: mesa.pda.toBase58(), erro: String(err).slice(0, 200) })
+      }
+      continue
+    }
+
+    if (mesa.state !== 'committed') continue
 
     if (deps.isLive(id)) {
       report.puladas.push({ motivo: 'partida em andamento', pda: mesa.pda.toBase58() })
@@ -125,7 +155,7 @@ export async function sweepExpired(deps: SweeperDeps): Promise<SweepReport> {
       report.puladas.push({ motivo: 'comprometida sem oponente', pda: mesa.pda.toBase58() })
       continue
     }
-    if (report.destravadas >= MAX_PER_SWEEP) {
+    if (report.destravadas + report.canceladas >= MAX_PER_SWEEP) {
       report.puladas.push({ motivo: 'limite da passada', pda: mesa.pda.toBase58() })
       continue
     }
@@ -170,9 +200,10 @@ export function startSweeper(deps: SweeperDeps): () => void {
     rodando = true
     try {
       const r = await sweepExpired(deps)
-      if (r.destravadas > 0 || r.erros.length > 0) {
+      if (r.destravadas > 0 || r.canceladas > 0 || r.erros.length > 0) {
         deps.log?.(
-          `[sweeper] ${r.destravadas} destravada(s), ${r.vencidas} vencida(s), ${r.erros.length} erro(s)`,
+          `[sweeper] ${r.destravadas} liquidada(s), ${r.canceladas} cancelada(s), ` +
+            `${r.vencidas} vencida(s), ${r.erros.length} erro(s)`,
         )
       }
     } catch (err) {
