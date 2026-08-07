@@ -126,6 +126,25 @@ export type ShotResultView = {
   summary: MatchSummary
 }
 
+/**
+ * O que um `tick` produziu, para quem precisa avisar os jogadores.
+ *
+ * O relógio age SOZINHO no servidor: sem devolver o que ele fez, os clientes
+ * não teriam como aplicar a mesma coisa nas mesas deles.
+ */
+export type TickResult = {
+  changed: boolean
+  timedOut: 0 | 1 | null
+  /** Onde a branca foi posta, quando o prazo expirou com bola na mão. */
+  placed?: { x: number; y: number }
+  /** A tacada nula que o relógio deu pelo jogador. */
+  view?: ShotResultView
+  /** A escolha que o relógio fez, quando havia decisão pendente. */
+  decided?: { chooser: 0 | 1; option: number; rerack: boolean }
+}
+
+type DeadlineEffect = Omit<TickResult, 'changed' | 'timedOut'>
+
 export type MatchEnded = {
   winner: 0 | 1 | null
   reason: MatchEndReason
@@ -485,7 +504,7 @@ export class Match {
     return r.remaining < 2 || r.remainingPlacements < 1 || r.remainingCalls < 1
   }
 
-  tick(now: number): { changed: boolean; timedOut: 0 | 1 | null } {
+  tick(now: number): TickResult {
     if (this.phase === 'finished') return { changed: false, timedOut: null }
 
     // Sem espaço para gravar, não há como PROVAR o resultado. Declarar um
@@ -518,8 +537,13 @@ export class Match {
 
     // Só passa a vez. Quem sumiu vai perdendo turnos; quem ficou joga e vence
     // pelas regras, tendo de fato encaçapado as bolas.
-    this.#onDeadlineMissed(quem, now)
-    return { changed: true, timedOut: quem }
+    //
+    // O que aconteceu volta no resultado porque os CLIENTES precisam saber: o
+    // relógio joga no servidor, e sem o aviso a mesa deles fica no estado
+    // anterior para sempre. Com bola na mão é pior — a branca continua
+    // encaçapada do lado deles e a tacada seguinte é recusada pela física.
+    const efeito = this.#onDeadlineMissed(quem, now)
+    return { changed: true, timedOut: quem, ...efeito }
   }
 
   /**
@@ -539,11 +563,13 @@ export class Match {
    * transferi-la mudaria o jogo. Escolhe-se a primeira opção, que nas duas
    * situações da WPA é a conservadora — aceitar a mesa como está.
    */
-  #onDeadlineMissed(quem: 0 | 1, now: number): void {
+  #onDeadlineMissed(quem: 0 | 1, now: number): DeadlineEffect {
     if (this.phase === 'deciding') {
-      this.decide(this.players[quem].address, 0, now)
-      return
+      const { rerack } = this.decide(this.players[quem].address, 0, now)
+      return { decided: { chooser: quem, option: 0, rerack } }
     }
+
+    let posicao: { x: number; y: number } | undefined
 
     // Bola na mão pendente: quem não coloca a tempo fica com o ponto de saque,
     // que é a posição neutra. Precisa acontecer antes da tacada nula, senão a
@@ -555,9 +581,11 @@ export class Match {
       )
       placeCueBall(this.table!, F.from(onde.x), F.from(onde.y))
       this.#placed = true
+      posicao = onde
     }
 
-    this.#applyShot(quem, TACADA_NULA, now)
+    const view = this.#applyShot(quem, TACADA_NULA, now)
+    return posicao ? { placed: posicao, view } : { view }
   }
 
   #finish(winner: 0 | 1 | null, reason: MatchEndReason): void {

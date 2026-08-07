@@ -167,6 +167,7 @@ matches.subscribe((event) => {
         spinX: v.shot.spinX,
         spinY: v.shot.spinY,
         stateHash: v.stateHash,
+        ...(event.byClock ? { byClock: true } : {}),
         turn: m?.turn ?? null,
         deadline: m?.deadline ?? null,
         status: v.summary.status,
@@ -207,6 +208,7 @@ matches.subscribe((event) => {
         by: event.by,
         x: event.x,
         y: event.y,
+        ...(event.byClock ? { byClock: true } : {}),
         deadline: m?.deadline ?? null,
       })
       break

@@ -286,3 +286,80 @@ describe('uma partida quebrada não derruba as outras', () => {
     expect(() => env.avancar(1000)).not.toThrow()
   })
 })
+
+describe('o relógio avisa os jogadores do que fez', () => {
+  /**
+   * O relógio age no SERVIDOR. Sem repassar o que ele fez, a mesa dos clientes
+   * fica no estado anterior para sempre — e com bola na mão a branca continua
+   * encaçapada do lado deles, então a física recusa a tacada seguinte. Era
+   * assim que a vez passar quebrava a partida para o outro jogador.
+   */
+  test('a tacada nula do prazo vira evento', () => {
+    const env = jogando()
+
+    env.avancar(SHOT_CLOCK_MS)
+
+    const shot = env.eventos.find((e) => e.t === 'shot') as
+      | { view: { shot: unknown }; byClock?: boolean }
+      | undefined
+
+    expect(shot).toBeDefined()
+    // A marca importa: o cliente do jogador que estourou o tempo não previu
+    // nada, então precisa APLICAR em vez de só conferir o hash.
+    expect(shot!.byClock).toBe(true)
+  })
+
+  test('a bola na mão posta pelo prazo também vira evento', () => {
+    const env = jogando()
+    let agora = 0
+
+    // Joga até abrir uma bola na mão, e então deixa o tempo acabar.
+    for (let i = 0; i < 12; i++) {
+      const atual = env.matches.matchOf(ALICE)?.match
+      if (!atual || atual.ballInHand !== null) break
+      agora += 1_000
+      env.em(1_000)
+      env.matches.shoot(daVez(env), tacada((i * 41) % 360, 0.9))
+    }
+
+    const m = env.matches.matchOf(ALICE)?.match
+    if (!m || m.ballInHand === null) return
+
+    env.avancar(SHOT_CLOCK_MS)
+
+    const placed = env.eventos.find((e) => e.t === 'placed') as
+      | { x: number; y: number; byClock?: boolean }
+      | undefined
+
+    expect(placed).toBeDefined()
+    expect(placed!.byClock).toBe(true)
+  })
+
+  test('a partida continua jogável depois de a vez passar por tempo', () => {
+    // O sintoma que o jogador relatou: com bola na mão, passar a vez impedia o
+    // outro de jogar.
+    const env = jogando()
+
+    for (let i = 0; i < 8; i++) {
+      const atual = env.matches.matchOf(ALICE)?.match
+      if (!atual || atual.ballInHand !== null) break
+      env.em(1_000)
+      env.matches.shoot(daVez(env), tacada((i * 41) % 360, 0.9))
+    }
+
+    const antes = env.matches.matchOf(ALICE)?.match
+    if (!antes || antes.ballInHand === null) return
+
+    env.avancar(SHOT_CLOCK_MS)
+
+    const depois = env.matches.matchOf(ALICE)?.match
+    expect(depois).toBeDefined()
+
+    // Quem recebeu a vez consegue agir: ou colocar a branca, ou tacar.
+    const daVezAgora = depois!.players[depois!.summary!.turn].address
+    if (depois!.ballInHand !== null) {
+      expect(() => env.matches.place(daVezAgora, 0.5, 0.5)).not.toThrow()
+    }
+    expect(() => env.matches.shoot(daVezAgora, tacada(30, 0.8))).not.toThrow()
+  })
+})

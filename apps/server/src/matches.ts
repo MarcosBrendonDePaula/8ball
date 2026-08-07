@@ -18,11 +18,11 @@ export type MatchEvent =
   | { t: 'begin'; matchId: string; mode: GameModeId; players: [string, string] }
   | { t: 'revealOpen'; matchId: string }
   | { t: 'start'; matchId: string; seed: Uint8Array }
-  | { t: 'shot'; matchId: string; view: ReturnType<Match['shoot']> }
+  | { t: 'shot'; matchId: string; view: ReturnType<Match['shoot']>; byClock?: boolean }
   | { t: 'decision'; matchId: string }
   | { t: 'ballInHand'; matchId: string }
   | { t: 'callRequired'; matchId: string }
-  | { t: 'placed'; matchId: string; by: 0 | 1; x: number; y: number }
+  | { t: 'placed'; matchId: string; by: 0 | 1; x: number; y: number; byClock?: boolean }
   | { t: 'decided'; matchId: string; chooser: 0 | 1; option: number; rerack: boolean }
   | { t: 'offline'; matchId: string; who: 0 | 1 }
   | { t: 'online'; matchId: string; who: 0 | 1 }
@@ -274,13 +274,30 @@ export class Matches {
       // que ninguém observa e TODAS as mesas congelariam, cada uma com
       // dinheiro no contrato.
       try {
-        const antes = match.phase
         const r = match.tick(agora)
         if (!r.changed) continue
 
-        if (match.phase !== 'finished' && antes !== match.phase) {
-          this.#emit({ t: 'decision', matchId })
+        // O relógio agiu no SERVIDOR. Sem repassar o que ele fez, a mesa dos
+        // clientes fica no estado anterior para sempre — e com bola na mão a
+        // branca continua encaçapada do lado deles, fazendo a física recusar a
+        // tacada seguinte. Foi assim que a vez passar "quebrava o jogo".
+        if (r.decided) {
+          this.#emit({ t: 'decided', matchId, ...r.decided })
         }
+        if (r.placed) {
+          this.#emit({
+            t: 'placed',
+            matchId,
+            by: r.view?.by ?? 0,
+            x: r.placed.x,
+            y: r.placed.y,
+            byClock: true,
+          })
+        }
+        if (r.view) {
+          this.#emit({ t: 'shot', matchId, view: r.view, byClock: true })
+        }
+
         this.#afterAdvance(matchId, match)
       } catch (err) {
         // Encerrar sem vencedor é o desfecho seguro: as entradas voltam pelo

@@ -270,6 +270,14 @@ export const ServerMessage = z.discriminatedUnion('t', [
     spinX: z.number().int(),
     spinY: z.number().int(),
     stateHash: z.string(),
+    /**
+     * A tacada foi dada pelo RELÓGIO, não pelo jogador.
+     *
+     * Muda o que o cliente faz: numa tacada própria ele já aplicou por
+     * previsão e só confere o hash, mas a do relógio ninguém previu —
+     * inclusive a do próprio jogador que deixou o tempo acabar.
+     */
+    byClock: z.boolean().optional(),
     turn: z.union([z.literal(0), z.literal(1)]).nullable(),
     deadline: z.number().nullable(),
     status: z.string(),
@@ -298,6 +306,8 @@ export const ServerMessage = z.discriminatedUnion('t', [
     by: z.union([z.literal(0), z.literal(1)]),
     x: z.number(),
     y: z.number(),
+    /** Posta pelo relógio no ponto de saque, e não escolhida pelo jogador. */
+    byClock: z.boolean().optional(),
     deadline: z.number().nullable(),
   }),
 

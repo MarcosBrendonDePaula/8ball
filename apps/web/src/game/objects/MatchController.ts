@@ -310,7 +310,7 @@ export class MatchController extends Entity {
    * previsão, apenas confere o hash — se divergir, a nossa mesa deixou de
    * representar a partida e insistir só pioraria.
    */
-  applyRemoteShot(by: 0 | 1, shot: EncodedShot, stateHash: string): void {
+  applyRemoteShot(by: 0 | 1, shot: EncodedShot, stateHash: string, byClock = false): void {
     // Na reconstrução não há hash por tacada para conferir: o servidor manda o
     // histórico inteiro de uma vez. A conferência volta na próxima tacada ao
     // vivo, que é quando ela pode de fato acusar divergência.
@@ -319,7 +319,9 @@ export class MatchController extends Entity {
       return
     }
 
-    if (this.net && by === this.net.you) {
+    // A do relógio ninguém previu, nem a do próprio jogador: aplicar é o único
+    // caminho para a mesa acompanhar a partida.
+    if (this.net && by === this.net.you && !byClock) {
       const nosso = hashState(this.table)
       if (nosso !== stateHash && this.phase !== 'simulating') {
         this.desync = `mesa divergiu do servidor (${nosso} ≠ ${stateHash})`

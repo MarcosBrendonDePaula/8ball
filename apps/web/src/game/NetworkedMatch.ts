@@ -139,10 +139,14 @@ export function connectMatch(
       }
 
       case 'match.shot': {
+        // A tacada do RELÓGIO ninguém previu — nem o jogador que deixou o tempo
+        // acabar. Tratá-la como própria faria a mesa dele parar no estado
+        // anterior, e a tacada seguinte seria recusada pela física.
         controller?.applyRemoteShot(
           msg.by,
           { angle: msg.angle, power: msg.power, spinX: msg.spinX, spinY: msg.spinY },
           msg.stateHash,
+          msg.byClock === true,
         )
         patch({
           turn: msg.turn,
@@ -167,8 +171,11 @@ export function connectMatch(
         break
 
       case 'match.placed': {
-        // Só a do adversário é aplicada: a nossa já foi, por previsão.
-        if (msg.by !== state.you) controller?.applyRemotePlacement(msg.x, msg.y)
+        // A nossa própria já foi aplicada por previsão — exceto quando quem
+        // colocou foi o relógio, no ponto de saque, porque o tempo acabou.
+        if (msg.by !== state.you || msg.byClock === true) {
+          controller?.applyRemotePlacement(msg.x, msg.y)
+        }
         patch({ ballInHand: null, deadline: msg.deadline })
         break
       }
