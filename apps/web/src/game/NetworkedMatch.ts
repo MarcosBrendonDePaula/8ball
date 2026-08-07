@@ -178,7 +178,10 @@ export function connectMatch(
       }
 
       case 'match.opponentOffline':
-        patch({ opponentOffline: true, mensagem: 'Adversário desconectou…' })
+        patch({
+          opponentOffline: true,
+          mensagem: 'Adversário desconectou — a vez dele vai passando.',
+        })
         break
 
       case 'match.opponentOnline':

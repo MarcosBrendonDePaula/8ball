@@ -24,6 +24,7 @@ import {
   type PendingDecision,
 } from '@zinc-pool/engine-rules'
 import {
+  MAX_PLACEMENTS,
   ShotRecorder,
   decodeAngle,
   decodePower,
@@ -65,7 +66,7 @@ export type MatchPhase =
   | 'playing'
   | 'finished'
 
-export type MatchEndReason = 'regras' | 'desistência' | 'tempo' | 'abandono'
+export type MatchEndReason = 'regras' | 'desistência' | 'tempo' | 'replay cheio'
 
 export type MatchError =
   | 'not_your_turn'
@@ -90,24 +91,30 @@ export class MatchRuleError extends Error {
 export const SHOT_CLOCK_MS = 45_000
 
 /**
- * Faltas de tempo seguidas até o jogador perder por W.O.
+ * Não existe W.O. por tempo. Estourar o prazo só passa a vez.
  *
- * Três, não uma: cair a conexão por um instante não pode custar a mesa. Mas
- * também não pode ser infinito, senão um jogador que está perdendo trava a
- * partida e o dinheiro fica preso até o prazo on-chain.
+ * A alternativa — declarar derrota depois de N faltas — parecia proteger quem
+ * fica, mas punia quem teve uma queda de conexão de dois minutos. Passar a vez
+ * resolve melhor e sem caso especial: quem está presente joga, quem sumiu
+ * perde os turnos, e o jogo termina pelas REGRAS, com o vencedor tendo de fato
+ * encaçapado as bolas.
+ *
+ * Quem voltar encontra a partida onde ela está e ainda pode jogar. E se
+ * ninguém voltar, o prazo on-chain devolve o dinheiro aos dois — nunca fica
+ * preso.
  */
-export const MAX_SHOT_CLOCK_FOULS = 3
 
 /** Tempo para os dois revelarem o nonce antes de a partida ser anulada. */
 export const REVEAL_TIMEOUT_MS = 60_000
 
 /**
- * Tolerância de desconexão antes de W.O.
+ * Com os DOIS desconectados, o relógio para.
  *
- * Maior que o prazo de tacada de propósito: quem cai deve ter chance de voltar
- * e jogar, não só de voltar.
+ * Sem isto, uma mesa abandonada pelos dois iria acumulando faltas sozinha e
+ * chegaria a um "vencedor" que nem estava lá. Congelada, ela simplesmente
+ * espera: o primeiro que voltar retoma de onde parou, e se ninguém voltar o
+ * prazo on-chain devolve as entradas.
  */
-export const DISCONNECT_GRACE_MS = 90_000
 
 export type ShotResultView = {
   /** Tacada como foi aplicada — o cliente reproduz exatamente isto. */
@@ -166,7 +173,6 @@ export class Match {
 
   #commits: [string | null, string | null] = [null, null]
   #nonces: [Uint8Array | null, Uint8Array | null] = [null, null]
-  #clockFouls: [number, number] = [0, 0]
   #offlineSince: [number | null, number | null] = [null, null]
   #startedAt: number
 
@@ -299,13 +305,10 @@ export class Match {
       // com uma mensagem sobre estado interno. Esta diz o que fazer.
       throw new MatchRuleError('wrong_phase', 'Coloque a branca antes de jogar.')
     }
+    if (this.replayFull) {
+      throw new MatchRuleError('wrong_phase', 'A partida atingiu o limite gravável.')
+    }
     validarTacada(shot)
-
-    // Só a tacada VOLUNTÁRIA zera a contagem de faltas de tempo. A tacada nula
-    // que o prazo dispara passa pelo mesmo caminho de baixo, e se zerasse aqui
-    // o jogador jamais chegaria ao W.O. — ficaria estourando o relógio para
-    // sempre com o dinheiro preso na mesa.
-    this.#clockFouls[quem] = 0
 
     return this.#applyShot(quem, shot, now)
   }
@@ -371,7 +374,6 @@ export class Match {
     this.#placed = true
 
     // Colocar a bola é ação voluntária: reinicia o relógio como uma tacada.
-    this.#clockFouls[quem] = 0
     this.deadline = now + SHOT_CLOCK_MS
     return onde
   }
@@ -402,8 +404,6 @@ export class Match {
     this.rules = state
     if (rerack) rerackTable(this.table!, this.recorder!.seed)
 
-    // A escolha é uma ação voluntária como a tacada, então zera o relógio.
-    this.#clockFouls[quem] = 0
     this.#enterTurn(now)
 
     return { rerack }
@@ -439,17 +439,34 @@ export class Match {
    * desconexão — é o que evita que cada uma vire um `setTimeout` solto com o
    * seu próprio jeito de errar.
    */
+  /**
+   * Cabe mais alguma coisa no replay?
+   *
+   * Contra um adversário ausente, cada rodada gasta duas tacadas — a nula do
+   * relógio e a de quem está jogando — mais uma posição de bola na mão. O
+   * espaço acaba antes de a partida acabar.
+   */
+  get replayFull(): boolean {
+    const r = this.recorder
+    if (!r) return false
+    return r.remaining < 2 || r.placementCount >= MAX_PLACEMENTS - 1
+  }
+
   tick(now: number): { changed: boolean; timedOut: 0 | 1 | null } {
     if (this.phase === 'finished') return { changed: false, timedOut: null }
 
-    // Abandono vence os outros prazos: não faz sentido cobrar tacada de quem
-    // não está conectado.
-    for (const quem of [0, 1] as const) {
-      const desde = this.#offlineSince[quem]
-      if (desde !== null && now - desde >= DISCONNECT_GRACE_MS) {
-        this.#finish(outro(quem), 'abandono')
-        return { changed: true, timedOut: quem }
-      }
+    // Sem espaço para gravar, não há como PROVAR o resultado. Declarar um
+    // vencedor que o replay não sustenta quebraria a única coisa que o sistema
+    // promete de verdade, então a partida é anulada e as entradas voltam.
+    if (this.replayFull) {
+      this.#finish(null, 'replay cheio')
+      return { changed: true, timedOut: null }
+    }
+
+    // Ninguém olhando: o relógio para. Deixar correr faria a mesa acumular
+    // faltas sozinha e chegar a um "vencedor" que nem estava lá.
+    if (this.#offlineSince[0] !== null && this.#offlineSince[1] !== null) {
+      return { changed: false, timedOut: null }
     }
 
     if (this.deadline === null || now < this.deadline) {
@@ -466,13 +483,8 @@ export class Match {
     const quem = this.turn
     if (quem === null) return { changed: false, timedOut: null }
 
-    this.#clockFouls[quem]++
-
-    if (this.#clockFouls[quem] >= MAX_SHOT_CLOCK_FOULS) {
-      this.#finish(outro(quem), 'tempo')
-      return { changed: true, timedOut: quem }
-    }
-
+    // Só passa a vez. Quem sumiu vai perdendo turnos; quem ficou joga e vence
+    // pelas regras, tendo de fato encaçapado as bolas.
     this.#onDeadlineMissed(quem, now)
     return { changed: true, timedOut: quem }
   }

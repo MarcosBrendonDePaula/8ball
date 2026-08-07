@@ -342,8 +342,35 @@ que impede o segundo a revelar de escolher depois de ver o do adversário.
 | Regra | Prazo | Consequência |
 |---|---|---|
 | Revelação | 60s | partida anulada, sem vencedor |
-| Tacada | 45s | falta; 3 seguidas = W.O. |
-| Desconexão | 90s | W.O. por abandono |
+| Tacada | 45s | falta; a vez passa |
+| Desconexão | — | nada; os turnos vão passando |
+| Os dois fora | — | relógio congela |
+
+### Por que não existe W.O. por abandono
+
+A primeira versão declarava derrota depois de 3 faltas de tempo ou 90s
+desconectado. Parecia proteger quem fica, mas tinha dois defeitos: punia uma
+queda de conexão de dois minutos, e entregava a mesa **sem ninguém ter
+encaçapado nada**.
+
+Passar a vez resolve melhor e sem caso especial. Quem está presente joga, quem
+sumiu perde os turnos, e a partida termina pelas **regras** — com um vencedor
+que de fato ganhou. Quem voltar encontra o jogo onde parou e ainda pode
+disputar.
+
+Com os **dois** fora o relógio congela, senão a mesa acumularia faltas sozinha
+e chegaria a um "vencedor" que nem estava lá. Se ninguém voltar, o prazo
+on-chain devolve as entradas — o dinheiro nunca fica preso.
+
+### O limite gravável encerra a partida
+
+Contra um adversário ausente, cada rodada gasta duas tacadas — a nula do
+relógio e a de quem joga — mais uma posição de bola na mão. O espaço do replay
+acaba antes de a partida acabar.
+
+Quando acaba, a partida é **anulada** e as entradas voltam. Declarar um
+vencedor que o replay não sustenta quebraria a única coisa que o sistema
+promete de verdade.
 
 Estourar o prazo de tacada **não inventa uma transição nova**: é registrado
 como uma tacada de força zero. A branca não sai do lugar, as regras julgam
@@ -558,7 +585,7 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**439 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**440 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 

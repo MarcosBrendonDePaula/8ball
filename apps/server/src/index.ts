@@ -21,7 +21,7 @@ import {
   TOKEN_SYMBOL,
 } from '@/config'
 import { Lobby, LobbyError } from '@/lobby'
-import { MatchRuleError, REVEAL_TIMEOUT_MS, DISCONNECT_GRACE_MS } from '@/match'
+import { MatchRuleError, REVEAL_TIMEOUT_MS } from '@/match'
 import { Matches } from '@/matches'
 import { startSweeper } from '@/sweeper'
 import { settleMatch } from '@/settlement'
@@ -227,9 +227,11 @@ matches.subscribe((event) => {
       const m = matches.get(event.matchId)
       if (!m) return
       const caiu = m.players[event.who].address
+      // `until` é informativo: não há prazo de abandono, mas a interface mostra
+      // que a vez do ausente vai passando sozinha.
       const mensagem: ServerMessage =
         event.t === 'offline'
-          ? { t: 'match.opponentOffline', until: Date.now() + DISCONNECT_GRACE_MS }
+          ? { t: 'match.opponentOffline', until: Date.now() }
           : { t: 'match.opponentOnline' }
       // Só o ADVERSÁRIO precisa saber; quem caiu não está ouvindo mesmo.
       broadcast(mensagem, (s) => s.address !== null && s.address !== caiu && m.indexOf(s.address) !== null)

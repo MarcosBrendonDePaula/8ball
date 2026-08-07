@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  DISCONNECT_GRACE_MS,
-  MAX_SHOT_CLOCK_FOULS,
   Match,
   MatchRuleError,
   REVEAL_TIMEOUT_MS,
@@ -177,6 +175,14 @@ describe('prazo de tacada', () => {
     expect(m.recorder!.build().shots[0]).toEqual({ angle: 0, power: 0, spinX: 0, spinY: 0 })
   })
 
+  test('a falta por tempo passa a vez', () => {
+    const m = partidaIniciada()
+    const antes = m.turn
+
+    m.tick(T0 + SHOT_CLOCK_MS)
+    expect(m.turn).not.toBe(antes)
+  })
+
   test('o relógio reinicia a cada tacada', () => {
     const m = partidaIniciada()
     m.shoot(enderecoDaVez(m), tacada(180, 0.9), T0 + 10_000)
@@ -184,60 +190,26 @@ describe('prazo de tacada', () => {
     expect(m.deadline).toBe(T0 + 10_000 + SHOT_CLOCK_MS)
   })
 
-  test('faltas de tempo seguidas terminam em W.O.', () => {
+  test('estourar o prazo NÃO termina a partida', () => {
+    // A regra antiga declarava W.O. depois de três faltas. Ela protegia quem
+    // ficava, mas punia quem teve uma queda de dois minutos — e entregava a
+    // mesa sem ninguém ter encaçapado nada.
     const m = partidaIniciada()
     let agora = T0
 
-    // A falta por tempo passa a vez, então dois jogadores parados alternam:
-    // cada um só acumula falta no próprio turno. São 2× as rodadas.
-    for (let i = 0; i < MAX_SHOT_CLOCK_FOULS * 2 && m.phase !== 'finished'; i++) {
+    for (let i = 0; i < 20 && m.phase !== 'finished'; i++) {
       agora += SHOT_CLOCK_MS
       m.tick(agora)
     }
 
-    expect(m.phase).toBe('finished')
-    expect(m.result()?.reason).toBe('tempo')
-    expect(m.result()?.winner).not.toBeNull()
-  })
-
-  test('a falta por tempo passa a vez', () => {
-    const m = partidaIniciada()
-    const antes = m.turn
-
-    m.tick(T0 + SHOT_CLOCK_MS)
-
-    // Falta dá bola na mão ao adversário, então a vez vira. É por isso que um
-    // jogador parado não acumula três faltas em três rodadas.
-    expect(m.turn).not.toBe(antes)
-  })
-
-  test('tacar de verdade zera a contagem de faltas', () => {
-    const m = partidaIniciada()
-    let agora = T0
-
-    // Duas faltas de tempo, uma abaixo do W.O.
-    for (let i = 0; i < MAX_SHOT_CLOCK_FOULS - 1; i++) {
-      agora += SHOT_CLOCK_MS
-      m.tick(agora)
+    // Só termina se as REGRAS terminarem — e aí há um vencedor de verdade.
+    if (m.phase === 'finished') {
+      expect(m.result()?.reason).toBe('regras')
     }
-    expect(m.phase).not.toBe('finished')
-
-    // Cada jogador taca uma vez de verdade.
-    for (let i = 0; i < 2; i++) {
-      if (m.phase !== 'playing') break
-      m.shoot(enderecoDaVez(m), tacada(200 + i * 30, 0.8), agora)
-    }
-
-    // E agora aguenta o mesmo tanto de faltas de novo, sem acabar.
-    for (let i = 0; i < MAX_SHOT_CLOCK_FOULS - 1; i++) {
-      agora += SHOT_CLOCK_MS
-      m.tick(agora)
-    }
-    expect(m.phase).not.toBe('finished')
   })
 })
 
-describe('desistência e abandono', () => {
+describe('desistência e desconexão', () => {
   test('quem desiste entrega a partida ao outro', () => {
     const m = partidaIniciada()
     m.forfeit(ALICE, T0)
@@ -247,44 +219,78 @@ describe('desistência e abandono', () => {
     expect(m.result()?.winner).toBe(1)
   })
 
-  test('cair da conexão não perde na hora', () => {
+  test('cair da conexão não perde a partida', () => {
     const m = partidaIniciada()
     m.markOffline(BOB, T0)
 
-    m.tick(T0 + DISCONNECT_GRACE_MS - 1)
-
-    // O relógio de tacada corre em paralelo e pode ter dado falta; o que não
-    // pode é a partida ter acabado por abandono antes da tolerância.
+    // Antes isto virava derrota por abandono em 90 segundos.
+    m.tick(T0 + 60 * 60 * 1000)
     expect(m.result()?.reason).not.toBe('abandono')
   })
 
-  test('voltar a tempo salva a partida do abandono', () => {
+  test('quem sumiu perde os turnos, não a partida', () => {
     const m = partidaIniciada()
+    const ausente = m.turn!
+    m.markOffline(m.players[ausente].address, T0)
+
+    m.tick(T0 + SHOT_CLOCK_MS)
+
+    // A vez passa para quem ficou, que joga e pode vencer pelas regras.
+    expect(m.turn).not.toBe(ausente)
+    expect(m.phase).not.toBe('finished')
+  })
+
+  test('com os dois fora, o relógio congela', () => {
+    // Deixar correr faria a mesa acumular faltas sozinha e chegar a um
+    // "vencedor" que nem estava lá.
+    const m = partidaIniciada()
+    m.markOffline(ALICE, T0)
     m.markOffline(BOB, T0)
+
+    const antes = m.recorder!.shotCount
+    m.tick(T0 + SHOT_CLOCK_MS * 10)
+
+    expect(m.recorder!.shotCount).toBe(antes)
+    expect(m.phase).not.toBe('finished')
+  })
+
+  test('quem volta encontra a partida onde parou e destrava o relógio', () => {
+    const m = partidaIniciada()
+    m.markOffline(ALICE, T0)
+    m.markOffline(BOB, T0)
+    m.tick(T0 + SHOT_CLOCK_MS * 5)
+
     m.markOnline(BOB)
+    const antes = m.recorder!.shotCount
+    m.tick(T0 + SHOT_CLOCK_MS * 6)
 
-    m.tick(T0 + DISCONNECT_GRACE_MS * 10)
-    expect(m.result()?.reason).not.toBe('abandono')
+    expect(m.recorder!.shotCount).toBeGreaterThan(antes)
   })
 
-  test('não voltar perde por abandono', () => {
+  test('quem ficou consegue jogar e vencer pelas regras', () => {
     const m = partidaIniciada()
-    m.markOffline(BOB, T0)
+    let agora = T0
 
-    m.tick(T0 + DISCONNECT_GRACE_MS)
-    expect(m.result()?.reason).toBe('abandono')
-    expect(m.result()?.winner).toBe(0)
-  })
+    // O adversário some; o presente joga sempre que é a vez dele.
+    const presente = m.players[0].address
+    m.markOffline(m.players[1].address, agora)
 
-  test('abandono vence o prazo de tacada', () => {
-    // Não faz sentido cobrar tacada de quem não está conectado: quem some
-    // deve perder por abandono, que é o motivo verdadeiro.
-    const m = partidaIniciada()
-    const daVez = m.turn!
-    m.markOffline(m.players[daVez].address, T0)
+    for (let i = 0; i < 40 && m.phase !== 'finished'; i++) {
+      agora += 1_000
+      if (m.turn === 0 && m.phase === 'playing') {
+        if (m.ballInHand) m.place(presente, 0.5, 0.5, agora)
+        if (m.ballInHand === null) m.shoot(presente, tacada((i * 47) % 360, 0.85), agora)
+      } else {
+        agora += SHOT_CLOCK_MS
+        m.tick(agora)
+      }
+    }
 
-    m.tick(T0 + DISCONNECT_GRACE_MS)
-    expect(m.result()?.reason).toBe('abandono')
+    // Não importa quem venceu: importa que NÃO terminou por abandono. Ou as
+    // regras decidiram, ou o replay lotou — nunca um relógio entregando a mesa.
+    if (m.phase === 'finished') {
+      expect(['regras', 'replay cheio']).toContain(m.result()!.reason)
+    }
   })
 })
 
@@ -401,5 +407,25 @@ describe('bola na mão', () => {
     const conferido = verifyReplay(decodeReplay(m.recorder!.toBytes()))
     expect(conferido.shotsApplied).toBe(m.recorder!.shotCount)
     expect(conferido.stoppedBecause).toBeNull()
+  })
+})
+
+describe('limite gravável', () => {
+  test('sem espaço no replay, a partida é anulada em vez de decidida', () => {
+    // O replay é a prova. Declarar um vencedor que ele não sustenta quebraria
+    // a única coisa que o sistema promete — então as entradas voltam.
+    const m = partidaIniciada()
+    let agora = T0
+
+    for (let i = 0; i < 200 && m.phase !== 'finished'; i++) {
+      agora += SHOT_CLOCK_MS
+      m.tick(agora)
+    }
+
+    if (m.result()?.reason === 'replay cheio') {
+      expect(m.result()?.winner).toBeNull()
+      // Os bytes ainda cabem: nunca foi gravado além do limite.
+      expect(() => m.recorder!.toBytes()).not.toThrow()
+    }
   })
 })

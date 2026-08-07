@@ -94,7 +94,7 @@ setInterval(() => {
 
 function descreverFase(s: NetMatchState): string {
   if (s.desync) return `⚠ ${s.desync}`
-  if (s.opponentOffline) return 'Adversário desconectou — aguardando…'
+  if (s.opponentOffline) return 'Adversário fora — a vez dele passa sozinha'
 
   switch (s.fase) {
     case 'aguardando':
@@ -126,7 +126,11 @@ function montarPainel(s: NetMatchState): string {
     return `<div class="net-fim ${venceu ? 'venceu' : 'perdeu'}">
       <strong>${venceu ? 'Você venceu' : s.resultado.winner === null ? 'Partida anulada' : 'Você perdeu'}</strong>
       <span>por ${s.resultado.reason}</span>
-      <p>O pagamento e o replay vão para a blockchain automaticamente.</p>
+      <p>${
+        s.resultado.winner === null
+          ? 'As entradas voltam para os dois pelo contrato.'
+          : 'O pagamento e o replay vão para a blockchain automaticamente.'
+      }</p>
       <a href="/">Voltar ao lobby</a>
     </div>`
   }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { DISCONNECT_GRACE_MS, MatchRuleError, SHOT_CLOCK_MS, commitOf } from '@/match'
+import { MatchRuleError, SHOT_CLOCK_MS, commitOf } from '@/match'
 import { Matches, type MatchEvent } from '@/matches'
 import { encodeAngle, encodePower } from '@zinc-pool/replay'
 
@@ -138,37 +138,39 @@ describe('prazos disparam sozinhos', () => {
     expect(env.matches.matchOf(ALICE)!.match.recorder!.shotCount).toBe(antes + 1)
   })
 
-  test('W.O. por tempo encerra e limpa o registro', () => {
+  test('o relógio corre sem ninguém pedir e a vez passa', () => {
     const env = jogando()
+    const m = env.matches.matchOf(ALICE)!.match
+    const antes = m.turn
 
-    for (let i = 0; i < 12 && env.matches.active > 0; i++) env.avancar(SHOT_CLOCK_MS)
+    env.avancar(SHOT_CLOCK_MS)
 
-    expect(env.matches.active).toBe(0)
-    const fim = env.eventos.find((e) => e.t === 'end')
-    expect((fim as { result: { reason: string } }).result.reason).toBe('tempo')
+    expect(env.matches.matchOf(ALICE)!.match.turn).not.toBe(antes)
   })
 
-  test('desconexão longa termina em abandono', () => {
+  test('desconexão não encerra a partida', () => {
+    // A regra antiga dava W.O. por abandono em 90s. Ela entregava a mesa a
+    // quem ficou sem ninguém ter encaçapado nada — e punia uma queda curta.
     const env = jogando()
     env.matches.markOffline(BOB)
 
-    env.avancar(DISCONNECT_GRACE_MS)
+    env.avancar(60 * 60 * 1000)
 
     const fim = env.eventos.find((e) => e.t === 'end')
-    expect((fim as { result: { reason: string; winner: number } }).result.reason).toBe('abandono')
-    expect((fim as { result: { winner: number } }).result.winner).toBe(0)
+    expect(fim).toBeUndefined()
+    expect(env.matches.active).toBe(1)
   })
 
-  test('reconectar cancela a contagem', () => {
+  test('com os dois fora, a mesa fica parada esperando', () => {
     const env = jogando()
+    env.matches.markOffline(ALICE)
     env.matches.markOffline(BOB)
-    env.em(DISCONNECT_GRACE_MS - 1)
-    env.matches.markOnline(BOB)
 
-    env.avancar(DISCONNECT_GRACE_MS)
+    const antes = env.matches.matchOf(ALICE)!.match.recorder!.shotCount
+    env.avancar(SHOT_CLOCK_MS * 10)
 
-    const fim = env.eventos.find((e) => e.t === 'end')
-    expect((fim as { result: { reason: string } } | undefined)?.result.reason).not.toBe('abandono')
+    expect(env.matches.matchOf(ALICE)!.match.recorder!.shotCount).toBe(antes)
+    expect(env.matches.active).toBe(1)
   })
 })
 

@@ -310,7 +310,15 @@ export const ServerMessage = z.discriminatedUnion('t', [
   z.object({
     t: z.literal('match.end'),
     winner: z.union([z.literal(0), z.literal(1)]).nullable(),
-    reason: z.enum(['regras', 'desistência', 'tempo', 'abandono']),
+    /**
+     * Como a partida acabou.
+     *
+     * Não existe "abandono": quem cai perde os TURNOS, não a partida. E
+     * "replay cheio" anula, porque sem espaço para gravar não há como provar
+     * o resultado — e um vencedor que o replay não sustenta valeria menos que
+     * nenhum.
+     */
+    reason: z.enum(['regras', 'desistência', 'tempo', 'replay cheio']),
     /** Replay em hex, para o cliente conferir por conta própria. */
     replay: z.string(),
   }),
