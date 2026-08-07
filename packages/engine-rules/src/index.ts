@@ -12,6 +12,7 @@
  */
 
 export * from './mode'
+export * from './bridge'
 
 export * as eightball from './eightball'
 export * as sinuca from './sinuca'

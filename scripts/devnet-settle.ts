@@ -119,6 +119,7 @@ try {
         creator: alice.publicKey,
         winner: impostor.publicKey,
         resultHash: new Uint8Array(32),
+        replay: new Uint8Array(0),
       }),
     ],
     [impostor],
@@ -155,6 +156,9 @@ await send(
       creator: alice.publicKey,
       winner: alice.publicKey,
       resultHash,
+      // Este script exercita só o fluxo do dinheiro; a gravação do replay tem
+      // o seu próprio, em `bun run replay`.
+      replay: new Uint8Array(0),
     }),
   ],
   [referee],

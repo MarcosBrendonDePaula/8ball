@@ -9,12 +9,14 @@ import {
   hashState,
   jitterFromSeed,
   rackBalls,
-  table as T,
-  vec as V,
-  CUE_BALL,
-  type TableState,
 } from '@zinc-pool/engine-physics'
-import { getGameMode } from '@zinc-pool/engine-rules'
+import {
+  fullOutcome,
+  getGameMode,
+  outcomeFromEvents,
+  rerackTable,
+  settleTable,
+} from '@zinc-pool/engine-rules'
 import {
   decodeAngle,
   decodePower,
@@ -107,6 +109,8 @@ export function verifyReplay(replay: Replay): VerificationResult {
   let aplicadas = 0
   let parou: string | null = null
 
+  const decisoes = [...(replay.decisions ?? [])]
+
   for (const shot of replay.shots) {
     const resumo = mode.summarize(rules as never)
     if (resumo.finished) {
@@ -114,10 +118,23 @@ export function verifyReplay(replay: Replay): VerificationResult {
       break
     }
 
-    // O taco é o do jogador da VEZ — cada um joga com o seu.
-    const cue = clampCue(replay.cues[resumo.turn])
+    // Decisões abertas pela tacada anterior são resolvidas ANTES da próxima.
+    // As regras recusam jogar com pendência, então esta ordem não é escolha.
+    const pendencia = mode.pendingOf(rules as never)
+    if (pendencia) {
+      const escolha = decisoes.shift()
+      if (escolha === undefined) {
+        parou = `faltou no replay a escolha de "${pendencia.kind}"`
+        break
+      }
+      const resolvida = mode.resolve(rules as never, escolha)
+      rules = resolvida.state
+      if (resolvida.rerack) rerackTable(table, replay.seed)
+    }
 
-    reposicionarBrancaSeNecessario(table)
+    // O taco é o do jogador da VEZ — cada um joga com o seu. Relido depois da
+    // decisão, que pode ter passado a vez para o outro.
+    const cue = clampCue(replay.cues[mode.summarize(rules as never).turn])
 
     const resultado = applyShot(table, {
       intent: {
@@ -129,8 +146,13 @@ export function verifyReplay(replay: Replay): VerificationResult {
       isBreak: aplicadas === 0,
     })
 
-    const outcome = outcomeFromResult(resultado.events)
-    rules = mode.play(rules as never, outcome as never).state
+    // Exatamente as mesmas três chamadas que o jogo faz, na mesma ordem. Ver
+    // o aviso em engine-rules/bridge.ts: se divergirem, o replay não prova nada.
+    const outcome = fullOutcome(outcomeFromEvents(resultado.events))
+    const { state, ruling } = mode.play(rules as never, outcome as never)
+    rules = state
+    settleTable(table, ruling)
+
     aplicadas++
   }
 
@@ -171,65 +193,3 @@ export function replayProves(
 const mesmosBytes = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((byte, i) => byte === b[i])
 
-/**
- * A branca encaçapada volta ao ponto de saque antes da próxima tacada.
- *
- * Regra simplificada de propósito: a posição de bola na mão escolhida pelo
- * jogador precisaria estar gravada no replay para ser reproduzível. Enquanto
- * ela não estiver, o replay usa a posição canônica — e a verificação só é
- * válida para partidas em que ninguém moveu a branca.
- */
-function reposicionarBrancaSeNecessario(table: TableState): void {
-  const branca = table.balls.find((b) => b.id === CUE_BALL)
-  if (!branca?.pocketed) return
-
-  branca.pocketed = false
-  V.copy(branca.position, T.CUE_SPOT)
-  V.set(branca.velocity, 0, 0)
-  V.set(branca.spin, 0, 0)
-}
-
-/** Mesma tradução que o cliente faz, para os dois julgarem igual. */
-function outcomeFromResult(events: readonly { type: string; [k: string]: unknown }[]) {
-  let firstContact: number | null = null
-  let contactIndex = -1
-
-  for (let i = 0; i < events.length; i++) {
-    const e = events[i]!
-    if (e.type !== 'ball-ball') continue
-    const a = e.a as number
-    const b = e.b as number
-    if (a !== CUE_BALL && b !== CUE_BALL) continue
-    firstContact = a === CUE_BALL ? b : a
-    contactIndex = i
-    break
-  }
-
-  const pocketed: number[] = []
-  let eightBallPocket: number | null = null
-  let railAfterContact = false
-  const tocaramTabela = new Set<number>()
-
-  for (let i = 0; i < events.length; i++) {
-    const e = events[i]!
-    if (e.type === 'pocketed') {
-      pocketed.push(e.ball as number)
-      if (e.ball === 8) eightBallPocket = e.pocket as number
-    } else if (e.type === 'ball-cushion') {
-      tocaramTabela.add(e.ball as number)
-      if (contactIndex >= 0 && i > contactIndex) railAfterContact = true
-    }
-  }
-  tocaramTabela.delete(CUE_BALL)
-
-  return {
-    firstContact,
-    pocketed,
-    offTable: [],
-    railAfterContact,
-    ballsToRail: tocaramTabela.size,
-    eightBallPocket,
-    called: null,
-    nominated: null,
-  }
-}

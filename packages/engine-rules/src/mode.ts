@@ -58,12 +58,52 @@ export type GameMode<TState = unknown, TOutcome = unknown, TRuling = unknown> = 
   judge(state: TState, outcome: TOutcome): TRuling
   /** Julga e avança para o estado da próxima tacada. */
   play(state: TState, outcome: TOutcome): { state: TState; ruling: TRuling }
+  /**
+   * Decisão que precisa ser tomada antes da próxima tacada, se houver.
+   *
+   * Devolve `null` na modalidade que não tem nenhuma. Quem chama DEVE consultar
+   * isto entre tacadas: mandar jogar com decisão pendente é erro, e as regras
+   * lançam em vez de escolher sozinhas — escolher seria tirar do jogador um
+   * direito que a regra lhe dá.
+   */
+  pendingOf(state: TState): PendingDecision | null
+  /** Aplica a escolha do jogador e libera a próxima tacada. */
+  resolve(state: TState, optionIndex: number): DecisionOutcome<TState>
   /** Desistência ou W.O. por tempo. */
   forfeit(state: TState, quemDesiste: 0 | 1): TState
   /** Quem venceu, se a partida acabou. */
   winnerOf(state: TState): 0 | 1 | null
   /** Resumo para a interface, sem ela conhecer o formato interno. */
   summarize(state: TState): MatchSummary
+}
+
+/**
+ * Escolha aberta entre tacadas, no vocabulário comum.
+ *
+ * As opções vêm como índices para caberem num byte do replay. O texto serve à
+ * interface; o índice é o que fica gravado e o que a verificação reproduz.
+ * A ORDEM das opções é parte do formato: trocá-la faria replays antigos
+ * reproduzirem outra escolha.
+ */
+export type PendingDecision = {
+  chooser: 0 | 1
+  /** Identificador estável da situação, para a interface explicar. */
+  kind: string
+  /** Rótulos das opções, na ordem em que são numeradas. */
+  options: readonly string[]
+}
+
+export type DecisionOutcome<TState> = {
+  state: TState
+  /**
+   * A escolha exige montar o triângulo de novo.
+   *
+   * Precisa ser explícito porque o estado de REGRAS e o estado FÍSICO da mesa
+   * são separados: as regras zeram as bolas encaçapadas, mas as bolas em si
+   * continuam onde pararam até alguém rearmar. Inferir isso do estado seria
+   * frágil, e errar significa jogo e verificador divergirem.
+   */
+  rerack: boolean
 }
 
 /**
@@ -86,6 +126,27 @@ export type MatchSummary = {
 
 // -------------------------------------------------------------- 8-Ball
 
+/**
+ * Ordem canônica das escolhas pós-quebra.
+ *
+ * NÃO REORDENAR. O índice nesta lista é o que vai gravado no replay; mudar a
+ * ordem faria toda partida antiga ser reproduzida com outra escolha, e a
+ * auditoria passaria a apontar vencedores errados sem nada acusar.
+ */
+const BREAK_CHOICES: readonly eightballTypes.BreakChoice[] = [
+  'accept',
+  'rerack-self',
+  'rerack-opponent',
+  'respot-eight',
+]
+
+const BREAK_CHOICES_LABELS: readonly string[] = [
+  'Aceitar a mesa',
+  'Quebrar de novo',
+  'Devolver a quebra',
+  'Recolocar a 8',
+]
+
 const eightballMode: GameMode<
   eightballTypes.MatchState,
   eightballTypes.ShotOutcome,
@@ -95,6 +156,21 @@ const eightballMode: GameMode<
   create: (breaker) => eightballTypes.createMatch(breaker),
   judge: (state, outcome) => eightball.judgeShot(state, outcome),
   play: (state, outcome) => eightball.playShot(state, outcome),
+  pendingOf: (state) => {
+    const p = state.pending
+    if (!p) return null
+    return { chooser: p.chooser, kind: p.kind, options: BREAK_CHOICES_LABELS }
+  },
+  resolve: (state, optionIndex) => {
+    const escolha = BREAK_CHOICES[optionIndex]
+    if (!escolha) {
+      throw new Error(`Opção ${optionIndex} não existe para esta decisão.`)
+    }
+    const novo = eightball.resolveChoice(state, escolha)
+    // Reracking se as regras rearmaram o rack: mesa cheia de novo e por
+    // quebrar. `accept` e `respot-eight` seguem na mesa como está.
+    return { state: novo, rerack: !novo.broken && novo.pocketed.length === 0 }
+  },
   forfeit: (state, quem) => eightball.forfeit(state, quem),
   winnerOf: (state) => state.winner,
   summarize: (state) => ({
@@ -132,6 +208,12 @@ const sinucaMode: GameMode<
   create: (breaker) => sinucaTypes.createSinucaMatch(breaker),
   judge: (state, outcome) => sinuca.judgeSinucaShot(state, outcome),
   play: (state, outcome) => sinuca.playSinucaShot(state, outcome),
+  // A sinuca brasileira não abre escolha ao adversário em momento nenhum: toda
+  // consequência de falta é automática (bola devolvida, pontos ao rival).
+  pendingOf: () => null,
+  resolve: () => {
+    throw new Error('A sinuca brasileira não tem decisões pendentes.')
+  },
   forfeit: (state, quem) => sinuca.forfeitSinuca(state, quem),
   winnerOf: (state) => state.winner,
   summarize: (state) => {

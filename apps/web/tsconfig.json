@@ -4,7 +4,8 @@
     "noEmit": true,
     "types": [
       "vite/client",
-      "node"
+      "node",
+      "bun"
     ],
     "baseUrl": ".",
     "paths": {

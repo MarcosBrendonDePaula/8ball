@@ -9,7 +9,7 @@ qualquer pessoa, para sempre.
 | Program ID | `4Y3qRV52756DJgJDzvj9z5et5LX4Wr1Jm9cVEK4sS3ht` |
 | Rede | devnet |
 | Física | v1 · digest `1751bd8c` |
-| Testes | 337 |
+| Testes | 353 |
 
 ## Rodar
 
@@ -49,8 +49,9 @@ bun scripts/admin.ts pause <key>
 
 ## Por que isto é auditável
 
-Uma partida inteira cabe em ~360 bytes: o seed da quebra mais o vetor de cada
-tacada. Esses bytes ficam **gravados on-chain** junto da liquidação.
+Uma partida inteira cabe em ~360 bytes: o seed da quebra, o vetor de cada
+tacada e as escolhas que o jogador fez. Esses bytes ficam **gravados on-chain**
+junto da liquidação.
 
 Como a física é determinística, qualquer pessoa reproduz a partida a partir
 deles e confere se o vencedor declarado é o correto. Se o servidor mentir, a

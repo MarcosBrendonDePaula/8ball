@@ -156,21 +156,61 @@ julgamento. É isso que permite servidor e cliente julgarem sem discordar.
 
 ### O formato
 
-58 bytes de cabeçalho mais 5 por tacada. Uma partida de 60 tacadas ocupa
-**~360 bytes** — cabe numa transação da Solana.
+58 bytes de cabeçalho, 5 por tacada, 1 por decisão. Uma partida de 60 tacadas
+ocupa **~360 bytes**.
 
 ```
-0     versão do FORMATO      como ler os bytes
-1     modalidade
-2     versão da FÍSICA       com que comportamento reproduzir
-4..35 seed da quebra
+0      versão do FORMATO      como ler os bytes
+1      modalidade
+2      versão da FÍSICA       com que comportamento reproduzir
+3      número de decisões
+4..35  seed da quebra
 36..55 tacos dos dois jogadores
 56..57 número de tacadas
 58..   tacadas
+depois decisões, 1 byte cada
 ```
 
 As duas versões precisam estar lá, e por razões diferentes: a primeira diz
 como decodificar, a segunda diz qual simulação usar.
+
+### O orçamento de bytes é medido, não estimado
+
+Uma transação da Solana não passa de **1232 bytes**, e um `settle_match` sem
+replay nenhum já gasta **510** com assinaturas, contas e discriminador. Sobram
+**721** para o replay, e o teto é 682 — 120 tacadas e 24 decisões — deixando
+margem para uma instrução de compute budget.
+
+Esse número já esteve errado duas vezes, e as duas de um jeito que não aparece
+em teste curto: a liquidação falharia só nas partidas longas, com dinheiro na
+mesa. Hoje um teste trava a igualdade entre o teto do TypeScript e o do
+contrato em Rust.
+
+### Tacada não é a única entrada do jogador
+
+O 8-Ball abre escolhas ao adversário depois de uma quebra irregular, e uma
+delas manda **armar o rack de novo**. Sem gravá-las, o replay de qualquer
+partida que passasse por ali reproduziria outra coisa.
+
+Elas entram como uma lista de índices de opção, consumida na ordem em que as
+regras as abrem — o verificador deduz *quando* uma decisão acontece, então
+basta gravar *qual* foi. A ordem das opções em `PendingDecision` passa a ser
+parte do formato: trocá-la faria replays antigos reproduzirem outra escolha.
+
+### Jogo e verificador chamam o MESMO código
+
+`engine-rules/bridge.ts` é dono de duas operações que decidem o resultado:
+traduzir eventos da física para o vocabulário das regras, e devolver as bolas à
+mesa depois do julgamento.
+
+Elas moram num lugar só porque já houve **duas cópias** — uma no jogo, outra no
+verificador — e elas divergiram: o verificador não devolvia as bolas à mesa.
+Numa partida de sinuca de 60 tacadas, 21 devolveram bola e 26 bolas ao todo, e
+o verificador simulava a mesa sem nenhuma delas. **Toda partida de sinuca era
+auditada errado.**
+
+A regra, para quem mexer ali: se o jogo e o verificador não chamarem
+exatamente a mesma função, o replay não prova nada.
 
 ### A decisão que torna isso possível
 
@@ -410,17 +450,25 @@ Todas as chaves e `.env` estão no `.gitignore`.
 |---|---|
 | M1 física determinística | pronto, verificado Bun ≡ Chrome |
 | M2 regras | pronto, duas modalidades |
-| M3 mesa jogável | mesa e mira funcionando; falta ligar ao replay |
+| M3 mesa jogável | pronto — mesa, mira e gravação de replay |
 | M4 multiplayer | não iniciado |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**337 testes**, typecheck limpo.
+**353 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
+replay passar despercebido até quebrar contra a devnet.
 
 ### Limitações declaradas
 
 - Determinismo verificado em **duas** plataformas; Firefox e Safari não
 - O replay ainda **não grava a posição de bola na mão**; a verificação usa a
   posição canônica, então só é fiel a partidas sem falta
-- A especificação da física está **neste repositório**; ancorá-la em
-  armazenamento permanente (Arweave) é o passo que fecha o ciclo
+- A especificação da física está ancorada on-chain, mas hospedada **no
+  GitHub**; o hash é eterno, o endereço não. Arweave fecha o ciclo
+- O jitter da quebra tem **27 posições distintas por coordenada**, não 256: a
+  amplitude de ±0,2 mm vale 13 unidades em ponto fixo. São 30 coordenadas
+  independentes, o que basta de sobra contra precomputação, mas seeds vizinhos
+  produzem a mesma mesa. Corrigir exigiria uma versão nova da física
+- O teto de **120 tacadas** por partida vem da transação da Solana. Partida
+  mais longa que isso não tem como ser liquidada com o replay junto
 - Não há parecer jurídico sobre mesa apostada — bloqueante para mainnet

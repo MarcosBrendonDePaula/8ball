@@ -1,8 +1,9 @@
-import { Entity, type FrameContext } from '@/game/core/entity'
-import { outcomeFromEvents } from '@/game/outcome'
+import { Entity } from '@/game/core/entity'
 import {
   CUE_BALL,
+  DEFAULT_CUE,
   beginShot,
+  clampCue,
   cloneState,
   fixed as F,
   isMoving,
@@ -13,9 +14,20 @@ import {
   vec as V,
   type Ball,
   type CollisionEvent,
+  type CueParams,
   type TableState,
 } from '@zinc-pool/engine-physics'
-import { getGameMode, type GameModeId, type MatchSummary } from '@zinc-pool/engine-rules'
+import {
+  fullOutcome,
+  getGameMode,
+  outcomeFromEvents,
+  rerackTable,
+  settleTable,
+  type GameModeId,
+  type MatchSummary,
+  type PendingDecision,
+} from '@zinc-pool/engine-rules'
+import { ShotRecorder } from '@zinc-pool/replay'
 
 /**
  * Dono do estado da partida.
@@ -51,12 +63,28 @@ export class MatchController extends Entity {
   #events: CollisionEvent[] = []
   #steps = 0
 
+  /** Grava a partida no formato que vai para a blockchain. */
+  readonly recorder: ShotRecorder
+
+  /** Taco de cada jogador. Vem do NFT quando houver; hoje, o padrão. */
+  readonly cues: [CueParams, CueParams]
+
   constructor(
     readonly modeId: GameModeId,
-    seed = 1,
+    seed: number | Uint8Array = 1,
+    cues?: [CueParams, CueParams],
   ) {
     super('MatchController')
-    this.table = rackBalls(jitterFromSeed(new Uint8Array(32).fill(seed)))
+
+    // O seed dos 32 bytes é o mesmo que alimenta o jitter e que vai gravado no
+    // replay. Guardar um número e derivar os bytes em dois lugares seria pedir
+    // para eles divergirem.
+    const bytes = typeof seed === 'number' ? new Uint8Array(32).fill(seed) : seed.slice()
+
+    this.cues = [clampCue(cues?.[0] ?? DEFAULT_CUE), clampCue(cues?.[1] ?? DEFAULT_CUE)]
+    this.recorder = new ShotRecorder(modeId, bytes, this.cues)
+
+    this.table = rackBalls(jitterFromSeed(bytes))
     this.rules = this.mode.create(0)
     this.#capturePrevious()
   }
@@ -69,8 +97,44 @@ export class MatchController extends Entity {
     return this.mode.summarize(this.rules as never)
   }
 
+  /**
+   * Escolha aberta esperando o jogador, se houver.
+   *
+   * A interface precisa consultar isto: enquanto houver pendência, as regras
+   * recusam a próxima tacada. É o caso da quebra irregular no 8-Ball, em que a
+   * WPA dá ao adversário o direito de aceitar a mesa ou mandar quebrar de novo.
+   */
+  get pending(): PendingDecision | null {
+    return this.mode.pendingOf(this.rules as never)
+  }
+
   get canShoot(): boolean {
-    return this.phase === 'aiming'
+    return this.phase === 'aiming' && this.pending === null
+  }
+
+  /**
+   * Aplica a escolha do jogador e libera a próxima tacada.
+   *
+   * Grava no replay antes de aplicar, pela mesma razão da tacada: o verificador
+   * precisa refazer exatamente esta escolha, e uma decisão não gravada faria a
+   * partida ser reproduzida por outro caminho.
+   */
+  choose(optionIndex: number): void {
+    const pendencia = this.pending
+    if (!pendencia) return
+
+    this.recorder.recordDecision(optionIndex)
+
+    const { state, rerack } = this.mode.resolve(this.rules as never, optionIndex)
+    this.rules = state
+
+    // Rearmar o triângulo é obrigação de quem controla a mesa: as regras zeram
+    // as bolas encaçapadas, mas não movem bola nenhuma.
+    if (rerack) rerackTable(this.table, this.recorder.seed)
+
+    this.lastMessage = pendencia.options[optionIndex] ?? null
+    this.phase = this.summary.finished ? 'finished' : 'aiming'
+    this.#capturePrevious()
   }
 
   get cueBall(): Ball | undefined {
@@ -94,16 +158,30 @@ export class MatchController extends Entity {
     }
   }
 
-  /** Dispara a tacada. A simulação corre nos próximos quadros. */
+  /**
+   * Dispara a tacada. A simulação corre nos próximos quadros.
+   *
+   * A entrada é quantizada ANTES de simular, e é o valor quantizado que a
+   * física recebe. Se simulássemos o ângulo cru do mouse e só arredondássemos
+   * na gravação, o replay reproduziria outra partida — e o vencedor gravado na
+   * blockchain não bateria com o verificado.
+   */
   shoot(angle: number, power: number, spin?: { x: number; y: number }): void {
     if (!this.canShoot) return
+    if (this.recorder.remaining <= 0) {
+      this.lastMessage = 'Limite de tacadas do replay atingido.'
+      return
+    }
+
+    const tacada = this.recorder.take(angle, Math.max(0, Math.min(1, power)), spin)
 
     beginShot(this.table, {
       intent: {
-        angle: F.from(angle),
-        power: F.from(Math.max(0, Math.min(1, power))),
-        ...(spin ? { spin: { x: F.from(spin.x), y: F.from(spin.y) } } : {}),
+        angle: F.from(tacada.angle),
+        power: F.from(tacada.power),
+        spin: { x: F.from(tacada.spin.x), y: F.from(tacada.spin.y) },
       },
+      cue: this.cues[this.summary.turn],
       isBreak: !this.#jaQuebrou,
     })
 
@@ -160,41 +238,17 @@ export class MatchController extends Entity {
 
   /** Traduz os eventos, julga pelas regras e prepara a próxima tacada. */
   #resolveShot(): void {
-    const fisico = outcomeFromEvents(this.#events)
-
-    // Cada modalidade lê campos diferentes; mandar todos é mais simples e mais
-    // barato que ramificar aqui — e mantém este arquivo sem saber qual jogo é.
-    const outcome = {
-      ...fisico,
-      called: null,
-      nominated: null,
-    }
-
+    // Estas três chamadas são compartilhadas com o verificador de replay
+    // (engine-rules/bridge.ts). Não reimplemente nenhuma delas aqui: é
+    // exatamente a divergência entre as duas cópias que quebra a auditoria.
+    const outcome = fullOutcome(outcomeFromEvents(this.#events))
     const { state, ruling } = this.mode.play(this.rules as never, outcome as never)
 
     this.rules = state
     this.lastRuling = ruling
     this.lastMessage = descreverJulgamento(ruling as Record<string, unknown>)
 
-    // A branca encaçapada volta para a mesa antes da próxima tacada.
-    const branca = this.cueBall
-    if (branca?.pocketed) {
-      branca.pocketed = false
-      V.copy(branca.position, T.CUE_SPOT)
-      V.set(branca.velocity, 0, 0)
-      V.set(branca.spin, 0, 0)
-    }
-
-    // Bolas que as regras mandaram devolver voltam ao ponto de pé.
-    const respot = (ruling as { respot?: number[] }).respot ?? []
-    for (const id of respot) {
-      const bola = this.table.balls.find((b) => b.id === id)
-      if (bola?.pocketed) {
-        bola.pocketed = false
-        V.copy(bola.position, T.FOOT_SPOT)
-        V.set(bola.velocity, 0, 0)
-      }
-    }
+    settleTable(this.table, ruling)
 
     this.phase = this.summary.finished ? 'finished' : 'aiming'
     this.#capturePrevious()

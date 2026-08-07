@@ -81,6 +81,7 @@ const replay: Replay = {
   seed,
   cues: [DEFAULT_CUE, DEFAULT_CUE],
   shots,
+  decisions: [],
 }
 
 const bytes = encodeReplay(replay)

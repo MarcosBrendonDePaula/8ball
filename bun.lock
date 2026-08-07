@@ -42,6 +42,7 @@
         "@zinc-pool/engine-physics": "workspace:*",
         "@zinc-pool/engine-rules": "workspace:*",
         "@zinc-pool/protocol": "workspace:*",
+        "@zinc-pool/replay": "workspace:*",
         "bs58": "^6.0.0",
         "buffer": "^6.0.3",
       },

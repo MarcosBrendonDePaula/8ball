@@ -1,0 +1,9 @@
+{
+  "//": "Os scripts operacionais mexem em dinheiro real e gravam na blockchain. Ficaram fora do typecheck até um campo novo do replay passar despercebido e só quebrar em execução, contra a devnet.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun", "node"]
+  },
+  "include": ["."]
+}

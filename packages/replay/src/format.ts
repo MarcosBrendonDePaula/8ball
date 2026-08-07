@@ -5,8 +5,13 @@ import type { GameModeId } from '@zinc-pool/engine-rules'
  * Formato binário do replay.
  *
  * O objetivo é caber numa transação da Solana, para a partida ficar auditável
- * PARA SEMPRE em vez de enquanto o nosso servidor existir. O limite prático de
- * dados por transação é de ~900 bytes; uma partida de 60 tacadas ocupa ~355.
+ * PARA SEMPRE em vez de enquanto o nosso servidor existir.
+ *
+ * O orçamento é apertado e foi MEDIDO, não estimado: a transação inteira não
+ * pode passar de 1232 bytes, e um `settle_match` sem replay nenhum já gasta
+ * 510 com assinaturas, contas e discriminador. Sobram 721 bytes para o replay.
+ * A estimativa anterior de "~900" era otimista e teria feito partidas longas
+ * falharem na liquidação, com dinheiro na mesa.
  *
  * DECISÃO CENTRAL — a tacada é quantizada NA ORIGEM, não na gravação.
  *
@@ -24,20 +29,29 @@ import type { GameModeId } from '@zinc-pool/engine-rules'
  *   0       versão do FORMATO destes bytes
  *   1       modalidade
  *   2       versão da FÍSICA que gerou a partida
- *   3       reservado
+ *   3       número de decisões (u8)
  *   4..35   seed da quebra (32 bytes)
  *   36..45  taco do jogador 0 (5 × u16)
  *   46..55  taco do jogador 1
  *   56..57  número de tacadas (u16)
  *   58..    tacadas, 5 bytes cada
+ *   depois  decisões, 1 byte cada
  *
  * As duas versões são distintas e ambas precisam estar aqui. A do formato diz
  * como LER os bytes; a da física diz com qual COMPORTAMENTO reproduzi-los. Um
  * replay sem a segunda seria reproduzido pela física de hoje e poderia apontar
  * outro vencedor — o que destruiria a auditoria em silêncio.
+ *
+ * DECISÕES — tacada não é a única entrada do jogador.
+ *
+ * O 8-Ball dá escolhas ao adversário depois de uma quebra irregular, e uma
+ * delas manda armar o rack de novo. Sem gravá-las, o replay de qualquer partida
+ * que passasse por essa situação reproduziria outra coisa. Elas entram como uma
+ * lista de índices de opção, consumida na ordem em que as regras as abrem — o
+ * verificador sabe QUANDO uma decisão acontece, então basta gravar QUAL foi.
  */
 
-export const REPLAY_VERSION = 2
+export const REPLAY_VERSION = 3
 
 /** Cabeçalho fixo, em bytes. */
 export const HEADER_SIZE = 58
@@ -46,15 +60,43 @@ export const HEADER_SIZE = 58
 export const SHOT_SIZE = 5
 
 /**
+ * Espaço disponível para o replay dentro de uma transação de liquidação.
+ *
+ * Medido contra `settleMatchIx` real, não deduzido. Se a instrução ganhar mais
+ * uma conta, este número cai — e o teste que o compara com `MAX_REPLAY_BYTES`
+ * é o que avisa.
+ */
+export const TX_REPLAY_BUDGET = 721
+
+/**
  * Teto de tacadas por replay.
  *
- * Escolhido para o replay caber numa transação com folga para assinaturas e
- * contas. Partida mais longa que isso é rara, e o limite é explícito em vez de
- * o encode falhar silenciosamente truncando o fim.
+ * Cabe no orçamento acima com folga para uma instrução de compute budget, que
+ * é comum precisar acrescentar. Uma partida de 8-Ball costuma ter menos de 30
+ * tacadas, então 120 é generoso.
+ *
+ * O limite é explícito, e estourar dá erro, em vez de o encode truncar o fim
+ * em silêncio: um replay truncado verifica sem reclamar e aponta o vencedor
+ * errado — o pior desfecho possível para uma auditoria.
  */
-export const MAX_SHOTS = 160
+export const MAX_SHOTS = 120
 
-export const MAX_REPLAY_BYTES = HEADER_SIZE + MAX_SHOTS * SHOT_SIZE
+/**
+ * Teto de decisões por replay.
+ *
+ * Generoso de propósito: na prática são zero ou uma. Cada rerack repete a
+ * quebra, então uma partida patológica poderia encadear algumas.
+ */
+export const MAX_DECISIONS = 24
+
+/**
+ * Maior replay possível, em bytes.
+ *
+ * Casado com `MAX_REPLAY_BYTES` do programa on-chain. Se os dois divergirem, a
+ * liquidação falha só nas partidas longas — o pior tipo de bug, porque passa em
+ * todo teste curto e aparece em produção com dinheiro na mesa.
+ */
+export const MAX_REPLAY_BYTES = HEADER_SIZE + MAX_SHOTS * SHOT_SIZE + MAX_DECISIONS
 
 const MODE_CODES: Record<GameModeId, number> = { eightball: 0, sinuca: 1 }
 const MODE_BY_CODE: Record<number, GameModeId> = { 0: 'eightball', 1: 'sinuca' }
@@ -84,6 +126,13 @@ export type Replay = {
   /** Atributos do taco de cada jogador durante a partida. */
   cues: [CueParams, CueParams]
   shots: EncodedShot[]
+  /**
+   * Escolhas do jogador, na ordem em que as regras as abriram.
+   *
+   * Cada valor é o índice da opção em `PendingDecision.options`. Vazio na
+   * imensa maioria das partidas.
+   */
+  decisions: number[]
 }
 
 export class ReplayFormatError extends Error {
@@ -128,13 +177,27 @@ export function encodeReplay(replay: Replay): Uint8Array {
     )
   }
 
-  const bytes = new Uint8Array(HEADER_SIZE + replay.shots.length * SHOT_SIZE)
+  const decisions = replay.decisions ?? []
+  if (decisions.length > MAX_DECISIONS) {
+    throw new ReplayFormatError(
+      `Replay com ${decisions.length} decisões passa do limite de ${MAX_DECISIONS}.`,
+    )
+  }
+  for (const escolha of decisions) {
+    if (!Number.isInteger(escolha) || escolha < 0 || escolha > 255) {
+      throw new ReplayFormatError(`Índice de decisão inválido: ${escolha}.`)
+    }
+  }
+
+  const bytes = new Uint8Array(
+    HEADER_SIZE + replay.shots.length * SHOT_SIZE + decisions.length,
+  )
   const view = new DataView(bytes.buffer)
 
   bytes[0] = replay.version
   bytes[1] = MODE_CODES[replay.mode]
   bytes[2] = replay.engineVersion
-  bytes[3] = 0 // reservado
+  bytes[3] = decisions.length
   bytes.set(replay.seed, 4)
 
   escreverTaco(view, 36, replay.cues[0])
@@ -149,6 +212,11 @@ export function encodeReplay(replay: Replay): Uint8Array {
     view.setInt8(offset + 3, shot.spinX)
     view.setInt8(offset + 4, shot.spinY)
     offset += SHOT_SIZE
+  }
+
+  for (const escolha of decisions) {
+    bytes[offset] = escolha
+    offset++
   }
 
   return bytes
@@ -173,14 +241,16 @@ export function decodeReplay(bytes: Uint8Array): Replay {
   if (!mode) throw new ReplayFormatError(`Modalidade desconhecida: ${bytes[1]}.`)
 
   const engineVersion = bytes[2]!
+  const nDecisoes = bytes[3]!
   const seed = bytes.slice(4, 36)
   const cues: [CueParams, CueParams] = [lerTaco(view, 36), lerTaco(view, 46)]
 
   const total = view.getUint16(56, true)
-  const esperado = HEADER_SIZE + total * SHOT_SIZE
+  const esperado = HEADER_SIZE + total * SHOT_SIZE + nDecisoes
   if (bytes.length !== esperado) {
     throw new ReplayFormatError(
-      `Replay diz ter ${total} tacadas (${esperado} bytes) mas tem ${bytes.length}.`,
+      `Replay diz ter ${total} tacadas e ${nDecisoes} decisões ` +
+        `(${esperado} bytes) mas tem ${bytes.length}.`,
     )
   }
 
@@ -195,7 +265,10 @@ export function decodeReplay(bytes: Uint8Array): Replay {
     })
   }
 
-  return { version, mode, engineVersion, seed, cues, shots }
+  const inicioDecisoes = HEADER_SIZE + total * SHOT_SIZE
+  const decisions = Array.from(bytes.slice(inicioDecisoes, inicioDecisoes + nDecisoes))
+
+  return { version, mode, engineVersion, seed, cues, shots, decisions }
 }
 
 function escreverTaco(view: DataView, offset: number, cue: CueParams): void {
@@ -217,4 +290,5 @@ function lerTaco(view: DataView, offset: number): CueParams {
 }
 
 /** Tamanho que o replay terá, sem serializar. */
-export const replaySize = (shotCount: number): number => HEADER_SIZE + shotCount * SHOT_SIZE
+export const replaySize = (shotCount: number, decisionCount = 0): number =>
+  HEADER_SIZE + shotCount * SHOT_SIZE + decisionCount

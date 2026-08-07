@@ -72,3 +72,6 @@ if (problemas.length) {
   process.exit(1)
 }
 console.log('\nInterface OK.')
+
+// Marca o arquivo como módulo, para o `await` de topo ser válido.
+export {}

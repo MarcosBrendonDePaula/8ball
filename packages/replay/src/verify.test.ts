@@ -38,6 +38,7 @@ const replay = (shots: Replay['shots']): Replay => ({
   seed,
   cues: [DEFAULT_CUE, DEFAULT_CUE],
   shots,
+  decisions: [],
 })
 
 describe('reprodução', () => {

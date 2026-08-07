@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_CUE, CUE_ARCHETYPES, ENGINE_VERSION } from '@zinc-pool/engine-physics'
 import {
   HEADER_SIZE,
+  MAX_DECISIONS,
   MAX_REPLAY_BYTES,
   MAX_SHOTS,
   REPLAY_VERSION,
   ReplayFormatError,
   SHOT_SIZE,
+  TX_REPLAY_BUDGET,
   decodeAngle,
   decodePower,
   decodeReplay,
@@ -27,13 +29,14 @@ import {
 
 const seed = Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + 3) % 256)
 
-const replayBase = (shots: Replay['shots'] = []): Replay => ({
+const replayBase = (shots: Replay['shots'] = [], decisions: number[] = []): Replay => ({
   version: REPLAY_VERSION,
   mode: 'eightball',
   engineVersion: ENGINE_VERSION,
   seed,
   cues: [DEFAULT_CUE, CUE_ARCHETYPES.pesado],
   shots,
+  decisions,
 })
 
 const tacada = (over: Partial<Replay['shots'][number]> = {}) => ({
@@ -121,13 +124,15 @@ describe('serialização', () => {
   })
 
   test('uma partida realista cabe numa transação', () => {
-    // O limite prático de dados numa transação da Solana é ~900 bytes.
     const partidaLonga = encodeReplay(replayBase(Array.from({ length: 60 }, () => tacada())))
-    expect(partidaLonga.length).toBeLessThan(900)
+    expect(partidaLonga.length).toBeLessThan(TX_REPLAY_BUDGET)
   })
 
-  test('o teto do formato também cabe', () => {
-    expect(MAX_REPLAY_BYTES).toBeLessThan(900)
+  test('o teto do formato cabe no orçamento medido da transação', () => {
+    // Este é o teste que faltava. O limite não é "~900 bytes de dados": é a
+    // transação inteira em 1232, da qual o settle_match já gasta 510. Um teto
+    // acima disso só quebraria em partidas longas, em produção.
+    expect(MAX_REPLAY_BYTES).toBeLessThanOrEqual(TX_REPLAY_BUDGET)
   })
 })
 
@@ -187,5 +192,42 @@ describe('estabilidade do formato', () => {
     expect(volta.cues[0]).toEqual(DEFAULT_CUE)
     expect(volta.cues[1]).toEqual(CUE_ARCHETYPES.pesado)
     expect(volta.cues[0]).not.toEqual(volta.cues[1])
+  })
+})
+
+describe('decisões', () => {
+  test('atravessam a serialização na ordem', () => {
+    const r = replayBase([tacada(), tacada({ angle: 900 })], [3, 0, 1])
+    expect(decodeReplay(encodeReplay(r)).decisions).toEqual([3, 0, 1])
+  })
+
+  test('partida sem decisões não gasta byte nenhum', () => {
+    const semNada = encodeReplay(replayBase([tacada()], []))
+    expect(semNada.length).toBe(replaySize(1))
+  })
+
+  test('cada decisão custa exatamente um byte', () => {
+    const uma = encodeReplay(replayBase([tacada()], [2]))
+    expect(uma.length).toBe(replaySize(1, 1))
+  })
+
+  test('o replay cheio cabe no limite gravável on-chain', () => {
+    // Casado com MAX_REPLAY_BYTES do programa em Rust. Se este teste falhar,
+    // a liquidação de partidas longas passa a ser rejeitada pela blockchain.
+    expect(replaySize(MAX_SHOTS, MAX_DECISIONS)).toBe(MAX_REPLAY_BYTES)
+  })
+
+  test('recusa mais decisões do que cabe', () => {
+    const demais = Array.from({ length: MAX_DECISIONS + 1 }, () => 0)
+    expect(() => encodeReplay(replayBase([tacada()], demais))).toThrow(ReplayFormatError)
+  })
+
+  test('recusa índice que não cabe num byte', () => {
+    expect(() => encodeReplay(replayBase([tacada()], [300]))).toThrow(ReplayFormatError)
+  })
+
+  test('bytes truncados no fim das decisões são recusados', () => {
+    const bytes = encodeReplay(replayBase([tacada()], [1, 2]))
+    expect(() => decodeReplay(bytes.slice(0, bytes.length - 1))).toThrow(ReplayFormatError)
   })
 })

@@ -36,10 +36,22 @@ pub const DEFAULT_PROTOCOL_BPS: u16 = 500;
 /**
  * Teto de bytes do replay gravado on-chain.
  *
- * Casado com `MAX_REPLAY_BYTES` do pacote `@zinc-pool/replay`: cabeçalho de 56
- * bytes mais 160 tacadas de 5. Acima disso não caberia na transação.
+ * Casado com `MAX_REPLAY_BYTES` do pacote `@zinc-pool/replay`: cabeçalho de 58
+ * bytes, 120 tacadas de 5 e até 24 decisões de 1.
+ *
+ * O teto não vem daqui, vem da transação: ela não passa de 1232 bytes, e um
+ * `settle_match` sem replay nenhum já gasta 510 com assinaturas, contas e
+ * discriminador. Sobram 721, e 682 deixa margem para uma instrução de compute
+ * budget.
+ *
+ * Este número JÁ ESTEVE ERRADO DUAS VEZES: dizia 856, de quando o cabeçalho
+ * tinha 56 bytes, e a conta partia de "~900 bytes de dados por transação", que
+ * é otimista demais. O efeito seria a liquidação falhar só nas partidas mais
+ * longas, com dinheiro na mesa e nenhum teste curto acusando. Há um teste no
+ * pacote `replay` que trava a igualdade entre os dois lados; se ele falhar,
+ * corrija AQUI também.
  */
-pub const MAX_REPLAY_BYTES: usize = 856;
+pub const MAX_REPLAY_BYTES: usize = 682;
 
 /// Tamanho máximo do endereço de arquivamento da especificação.
 /// Uma URL do Arweave tem ~62 caracteres; 128 dá folga para IPFS e afins.

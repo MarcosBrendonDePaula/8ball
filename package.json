@@ -13,8 +13,8 @@
     "dev:server": "bun run --cwd apps/server dev",
     "build": "bun run --cwd apps/web build",
     "preview": "bun run --cwd apps/web preview",
-    "typecheck": "bunx tsc --noEmit -p packages/engine-physics && bunx tsc --noEmit -p packages/engine-rules && bunx tsc --noEmit -p packages/replay && bunx tsc --noEmit -p apps/web && bunx tsc --noEmit -p apps/server",
-    "test": "bun run --cwd packages/engine-physics test && bun run --cwd packages/engine-rules test && bun run --cwd packages/replay test && bun run --cwd apps/server test",
+    "typecheck": "bunx tsc --noEmit -p packages/engine-physics && bunx tsc --noEmit -p packages/engine-rules && bunx tsc --noEmit -p packages/replay && bunx tsc --noEmit -p apps/web && bunx tsc --noEmit -p apps/server && bunx tsc --noEmit -p scripts",
+    "test": "bun run --cwd packages/engine-physics test && bun run --cwd packages/engine-rules test && bun run --cwd packages/replay test && bun run --cwd apps/server test && bun run --cwd apps/web test",
     "verify": "bun scripts/verify.ts",
     "cycle": "bun scripts/devnet-settle.ts",
     "replay": "bun scripts/devnet-replay.ts"
