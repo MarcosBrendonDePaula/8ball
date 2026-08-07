@@ -199,8 +199,11 @@ function renderMyRoom(room: Room): string {
   const other = room.creator === me ? room.opponent : room.creator
   const pot = (BigInt(room.stake) * 2n).toString()
 
+  // Com a tela larga, a sala própria fica num painel centrado: ela é UMA
+  // coisa só, e esticá-la por 1180px deixaria os rótulos longe dos valores.
   return `
-    ${renderBadges()}
+    <div class="sala-unica">
+      <section class="painel">    ${renderBadges()}
     <div class="notice" data-tone="info">
       ${
         waiting
@@ -233,7 +236,9 @@ function renderMyRoom(room: Room): string {
           ? 'Cancelar é uma transação: a Phantom vai pedir aprovação e o depósito volta na hora.'
           : 'Os dois depósitos estão no contrato. A partida começa assim que os dois entrarem na mesa.'
       }
-    </p>`
+      </p>
+      </section>
+    </div>`
 }
 
 function renderRoomRow(room: Room): string {
@@ -250,84 +255,107 @@ function renderRoomRow(room: Room): string {
     </li>`
 }
 
+/**
+ * Faucet de SOL de teste. Só existe em devnet.
+ */
+function renderFaucet(): string {
+  const balance = netState.lamports
+
+  if (!netState.limits?.faucetAvailable) {
+    return balance === 0n
+      ? `<div class="notice" data-tone="info">
+           Esta carteira não tem SOL na <strong>${esc(cluster())}</strong>.
+         </div>`
+      : ''
+  }
+
+  return `
+    <div class="faucet">
+      <div class="faucet-text">
+        ${
+          balance === 0n
+            ? `Sem SOL na <strong>${esc(cluster())}</strong>. O SOL de mainnet não aparece aqui — são redes separadas.`
+            : 'Precisa de mais SOL de teste?'
+        }
+      </div>
+      <button id="faucet" class="ghost" ${busy ? 'disabled' : ''}>
+        ${busy && netState.pending === 'faucet' ? '<span class="spinner"></span>Pedindo…' : 'Pedir SOL de teste'}
+      </button>
+    </div>`
+}
+
+/**
+ * O lobby, em três colunas.
+ *
+ * Cada uma responde a uma pergunta diferente, e é isso que justifica a
+ * separação: quem eu sou, o que eu faço, o que eu já fiz. Espremer as três num
+ * cartão só transformava a página numa lista comprida sem hierarquia.
+ */
 function renderLobby(): string {
   const rooms = netState.rooms
   const balance = netState.lamports
 
   return `
-    ${renderBadges()}
+    <div class="lobby">
+      <aside class="coluna">
+        ${renderCarteira()}
+        ${renderRetrospecto()}
+        <div class="actions actions-rodape">
+          <button id="disconnect" class="ghost">Sair</button>
+        </div>
+      </aside>
 
-    <dl class="rows">
-      <div class="row">
-        <dt>Carteira</dt>
-        <dd><a href="${explorerAddressUrl(netState.address!)}" target="_blank" rel="noopener">${esc(short(netState.address!))}</a></dd>
-      </div>
-      <div class="row">
-        <dt>Saldo</dt>
-        <dd><strong>${balance === null ? '—' : formatAmount(balance)} ${esc(symbol())}</strong></dd>
-      </div>
-    </dl>
+      <main class="coluna">
+        <section class="painel">
+          <h2 class="section">Criar mesa</h2>
+          <div class="create">
+            <div class="create-fields">
+              <input id="stake" inputmode="decimal" placeholder="Entrada" value="${esc(form.stake)}" />
+              <select id="mode" aria-label="Modalidade">
+                ${GAME_MODES.map(
+                  (id) =>
+                    `<option value="${id}" ${form.mode === id ? 'selected' : ''}>${esc(
+                      GAME_MODE_INFO[id].name,
+                    )}</option>`,
+                ).join('')}
+              </select>
+              <input id="label" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
+            </div>
+            <button id="create" ${busy || balance === 0n ? 'disabled' : ''}>
+              ${busy && netState.pending === 'creating' ? '<span class="spinner"></span>Aguardando a Phantom…' : 'Criar mesa e depositar'}
+            </button>
+          </div>
+          <p class="footnote">
+            Criar ou entrar numa mesa é uma transação real na ${esc(cluster())}.
+            O depósito fica no contrato até a partida terminar.
+          </p>
+        </section>
 
-    ${
-      netState.limits?.faucetAvailable
-        ? `<div class="faucet">
-             <div class="faucet-text">
-               ${
-                 balance === 0n
-                   ? `Sem SOL na <strong>${esc(cluster())}</strong>. O SOL de mainnet não aparece aqui — são redes separadas.`
-                   : 'Precisa de mais SOL de teste?'
-               }
-             </div>
-             <button id="faucet" class="ghost" ${busy ? 'disabled' : ''}>
-               ${busy && netState.pending === 'faucet' ? '<span class="spinner"></span>Pedindo…' : 'Pedir SOL de teste'}
-             </button>
-           </div>`
-        : balance === 0n
-          ? `<div class="notice" data-tone="info">
-               Esta carteira não tem SOL na <strong>${esc(cluster())}</strong>.
-             </div>`
-          : ''
-    }
+        <section class="painel">
+          <h2 class="section">Mesas abertas ${rooms.length ? `<span>${rooms.length}</span>` : ''}</h2>
+          ${
+            rooms.length
+              ? `<ul class="rooms">${rooms.map(renderRoomRow).join('')}</ul>`
+              : `<p class="empty">Nenhuma mesa aberta. Crie a primeira.</p>`
+          }
+        </section>
+      </main>
 
-    <div class="create">
-      <div class="create-fields">
-        <input id="stake" inputmode="decimal" placeholder="Entrada" value="${esc(form.stake)}" />
-        <input id="label" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
-        <select id="mode" aria-label="Modalidade">
-          ${GAME_MODES.map(
-            (id) =>
-              `<option value="${id}" ${form.mode === id ? 'selected' : ''}>${esc(
-                GAME_MODE_INFO[id].name,
-              )}</option>`,
-          ).join('')}
-        </select>
-      </div>
-      <button id="create" ${busy || balance === 0n ? 'disabled' : ''}>
-        ${busy && netState.pending === 'creating' ? '<span class="spinner"></span>Aguardando a Phantom…' : 'Criar mesa e depositar'}
-      </button>
-    </div>
-
-    <h2 class="section">Mesas abertas ${rooms.length ? `<span>${rooms.length}</span>` : ''}</h2>
-    ${
-      rooms.length
-        ? `<ul class="rooms">${rooms.map(renderRoomRow).join('')}</ul>`
-        : `<p class="empty">Nenhuma mesa aberta. Crie a primeira.</p>`
-    }
-
-    <h2 class="section">Suas partidas ${historico.length ? `<span>${historico.length}</span>` : ''}</h2>
-    ${
-      historicoCarregando
-        ? `<p class="empty"><span class="spinner"></span>Lendo da blockchain…</p>`
-        : renderHistory(historico, symbol())
-    }
-
-    <div class="actions">
-      <button id="disconnect" class="ghost">Sair</button>
-    </div>
-    <p class="footnote">
-      Criar ou entrar numa mesa é uma transação real na ${esc(cluster())}. A Phantom
-      pede aprovação e o depósito fica no contrato até a partida terminar.
-    </p>`
+      <aside class="coluna">
+        <section class="painel">
+          <h2 class="section">Suas partidas ${historico.length ? `<span>${historico.length}</span>` : ''}</h2>
+          ${
+            historicoCarregando
+              ? `<p class="empty"><span class="spinner"></span>Lendo da blockchain…</p>`
+              : renderHistory(historico, symbol())
+          }
+          <p class="footnote">
+            Lido direto da blockchain. Cada partida é reproduzida aqui no seu
+            navegador para conferir o vencedor.
+          </p>
+        </section>
+      </aside>
+    </div>`
 }
 
 function body(): string {
@@ -338,21 +366,96 @@ function body(): string {
 
 function render(): void {
   const error = localError ?? netState.error
+  const noLobby = netState.authenticated && netState.address !== null
+
+  // O lobby usa a tela inteira; as telas de entrada continuam num cartão
+  // estreito, porque uma coluna de 1100px com dois botões fica pior, não
+  // melhor.
+  root.className = noLobby ? 'largo' : ''
 
   root.innerHTML = `
     ${renderNetworkBar()}
-    <main class="card">
-      <div class="brand">
-        <div class="ball8" aria-hidden="true"></div>
-        <h1>ZINC Pool</h1>
-      </div>
-      <p class="subtitle">8-Ball 1v1 com aposta em ${esc(symbol())}. Salas com escrow on-chain.</p>
+    <main class="${noLobby ? 'painel-topo' : 'card'}">
+      <header class="topo">
+        <div class="brand">
+          <div class="ball8" aria-hidden="true"></div>
+          <div>
+            <h1>ZINC Pool</h1>
+            <p class="subtitle">8-Ball 1v1 com aposta em ${esc(symbol())}. Salas com escrow on-chain.</p>
+          </div>
+        </div>
+        ${noLobby ? renderBadges() : ''}
+      </header>
       ${error ? `<div class="notice" data-tone="error">${esc(error)}</div>` : ''}
       ${!error && notice ? `<div class="notice" data-tone="ok">${esc(notice)}</div>` : ''}
-      ${body()}
-    </main>`
+      ${noLobby ? '' : body()}
+    </main>
+    ${noLobby ? body() : ''}`
 
   bind()
+}
+
+/**
+ * Painel da carteira.
+ *
+ * O saldo é o número que o jogador confere antes de cada aposta, então vem
+ * grande e sempre no mesmo canto — não numa linha de lista entre outras.
+ */
+function renderCarteira(): string {
+  const balance = netState.lamports
+
+  return `
+    <section class="painel painel-carteira">
+      <div class="carteira-saldo">
+        <span class="carteira-valor">${balance === null ? '—' : formatAmount(balance)}</span>
+        <span class="carteira-simbolo">${esc(symbol())}</span>
+      </div>
+      <a class="carteira-endereco" href="${explorerAddressUrl(netState.address!)}"
+         target="_blank" rel="noopener">${esc(short(netState.address!))} ↗</a>
+      ${renderFaucet()}
+    </section>`
+}
+
+/**
+ * Retrospecto do jogador.
+ *
+ * Sai do histórico que já foi carregado, então não custa nenhuma leitura
+ * extra — e responde a pergunta que todo mundo faz antes de apostar de novo.
+ */
+function renderRetrospecto(): string {
+  if (historicoCarregando) {
+    return `<section class="painel"><h2 class="section">Seu retrospecto</h2>
+      <p class="empty"><span class="spinner"></span>Lendo da blockchain…</p></section>`
+  }
+  if (historico.length === 0) return ''
+
+  const vitorias = historico.filter((h) => h.won).length
+  const derrotas = historico.length - vitorias
+  const aproveitamento = Math.round((vitorias / historico.length) * 100)
+
+  // Saldo: o vencedor leva 90% do pote, então cada vitória rende 90% do pote
+  // menos a própria entrada (metade do pote); cada derrota custa a entrada.
+  const saldo = historico.reduce((total, h) => {
+    const pote = BigInt(h.pot)
+    const entrada = pote / 2n
+    return total + (h.won ? (pote * 9000n) / 10000n - entrada : -entrada)
+  }, 0n)
+
+  const positivo = saldo >= 0n
+
+  return `
+    <section class="painel">
+      <h2 class="section">Seu retrospecto</h2>
+      <div class="estat">
+        <div class="estat-item"><span class="estat-numero">${vitorias}</span><span class="estat-rotulo">vitórias</span></div>
+        <div class="estat-item"><span class="estat-numero">${derrotas}</span><span class="estat-rotulo">derrotas</span></div>
+        <div class="estat-item"><span class="estat-numero">${aproveitamento}%</span><span class="estat-rotulo">aproveit.</span></div>
+      </div>
+      <div class="estat-saldo ${positivo ? 'positivo' : 'negativo'}">
+        <span>Saldo em partidas</span>
+        <strong>${positivo ? '+' : '−'}${formatAmount((positivo ? saldo : -saldo).toString())} ${esc(symbol())}</strong>
+      </div>
+    </section>`
 }
 
 function bind(): void {

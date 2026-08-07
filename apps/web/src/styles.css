@@ -27,13 +27,23 @@ body {
     radial-gradient(1100px 700px at 50% -15%, #16412d 0%, transparent 60%),
     var(--felt-900);
   display: grid;
-  place-items: center;
+  /* Alinhado ao topo: com o lobby cheio, centralizar verticalmente faz a
+     página pular a cada partida que entra na lista. */
+  place-items: start center;
   padding: 24px;
+  min-height: 100vh;
 }
 
+/* Telas de entrada continuam num cartão estreito: uma coluna de 1100px com
+   dois botões fica pior, não melhor. O lobby recebe `.largo`. */
 #app {
   width: 100%;
   max-width: 480px;
+  transition: max-width 0.2s ease;
+}
+
+#app.largo {
+  max-width: 1180px;
 }
 
 /* ------------------------------------------------------- faixa de rede */
@@ -340,10 +350,16 @@ input:focus {
   background: rgba(255, 255, 255, 0.015);
 }
 
+/* Entrada e modalidade na mesma linha porque são as duas decisões da aposta;
+   o nome é opcional e fica embaixo, ocupando a largura toda. */
 .create-fields {
   display: grid;
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.create-fields #label {
+  grid-column: 1 / -1;
 }
 
 .create input {
@@ -534,13 +550,29 @@ input:focus {
 
 /* O seletor de modalidade herda a caixa dos inputs vizinhos: a linha de criar
    mesa precisa parecer uma coisa só, não três controles avulsos. */
+/* O `select` nativo herda o tema claro do sistema no Windows e destoa de todo
+   o resto. `appearance: none` mais uma seta desenhada resolve sem depender de
+   como cada navegador pinta o controle. */
 #mode {
+  appearance: none;
   font: 500 14px/1 var(--font);
   color: inherit;
-  background: rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.06);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 18px) center, calc(100% - 13px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 12px 34px 12px 14px;
+  cursor: pointer;
+}
+
+/* As opções abrem no menu do sistema; ao menos o fundo acompanha. */
+#mode option {
+  background: var(--felt-900);
+  color: var(--text);
 }
 
 /* ------------------------------------------------------------- histórico */
@@ -611,4 +643,299 @@ input:focus {
     grid-template-columns: auto 1fr;
     gap: 4px 10px;
   }
+}
+
+/* ------------------------------------------------------------ topo */
+
+.topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.topo .brand {
+  margin-bottom: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.topo .subtitle {
+  margin: 4px 0 0;
+}
+
+/* O saldo é o número que o jogador confere antes de cada aposta: fica grande e
+   sempre no mesmo lugar, em vez de perdido numa lista de propriedades. */
+.topo-carteira {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.topo-saldo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.topo-valor {
+  font: 700 24px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--chalk);
+}
+
+.topo-simbolo {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.topo-endereco {
+  font: 500 12px/1 var(--mono);
+  opacity: 0.65;
+}
+.topo-endereco:hover {
+  opacity: 1;
+}
+
+@media (max-width: 560px) {
+  .topo {
+    margin-bottom: 16px;
+  }
+  .topo-carteira {
+    justify-items: start;
+  }
+}
+
+/* --------------------------------------------------- listas mais densas */
+
+/* Com mais largura disponível, as mesas ficam em cartões lado a lado em vez
+   de uma coluna alta que obriga a rolar. */
+.largo .rooms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+
+.largo .room {
+  margin: 0;
+}
+
+/* Sair não merece um painel próprio: é saída, não conteúdo. */
+.actions-rodape {
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------- painéis */
+
+/* Cada assunto num bloco próprio, em vez de tudo dentro de um cartão só.
+   Com a tela inteira disponível, um cartão gigante vira uma lista comprida
+   sem hierarquia — o olho não sabe onde começa uma coisa e acaba a outra. */
+.painel {
+  background: linear-gradient(180deg, var(--felt-800), var(--felt-900));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+
+.painel + .painel {
+  margin-top: 20px;
+}
+
+/* O painel de rodapé carrega informação de contexto, não ação principal. */
+.painel-sutil {
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: none;
+}
+
+.painel > .section:first-child {
+  margin-top: 0;
+}
+
+.painel > :last-child {
+  margin-bottom: 0;
+}
+
+/* O topo é uma faixa, não um cartão: ele emoldura a página em vez de competir
+   com os painéis por atenção. */
+.painel-topo {
+  display: block;
+  padding: 4px 4px 22px;
+}
+
+.painel-topo .topo {
+  margin-bottom: 0;
+}
+
+.painel-sutil .badges {
+  margin-bottom: 14px;
+}
+
+.painel-sutil .actions-rodape {
+  margin-top: 0;
+  max-width: none;
+}
+
+/* --------------------------------------------------- lobby em três colunas */
+
+/*
+ * Cada coluna responde a uma pergunta diferente, e é isso que justifica a
+ * separação:
+ *
+ *   esquerda  quem eu sou      saldo, retrospecto
+ *   meio      o que eu faço    criar mesa, entrar numa
+ *   direita   o que já fiz     histórico auditável
+ *
+ * O meio é o que cresce, porque é onde a ação está. As laterais têm largura
+ * fixa: saldo e histórico não ficam melhores esticados.
+ */
+.lobby {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+.coluna {
+  min-width: 0;
+}
+
+/* Duas colunas: o histórico desce para a largura toda. É o conteúdo mais
+   dispensável quando o espaço aperta — ninguém aposta olhando o passado. */
+@media (max-width: 1180px) {
+  .lobby {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+  .lobby > .coluna:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 820px) {
+  .lobby {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .lobby > .coluna:last-child {
+    grid-column: auto;
+  }
+}
+
+/* --------------------------------------------------------- carteira */
+
+.painel-carteira {
+  display: grid;
+  gap: 4px;
+}
+
+.carteira-saldo {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+/* O saldo é o número que se confere antes de cada aposta: grande, tabular e
+   sempre no mesmo lugar, em vez de perdido numa lista de propriedades. */
+.carteira-valor {
+  font: 700 28px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--chalk);
+  letter-spacing: -0.01em;
+}
+
+.carteira-simbolo {
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.carteira-endereco {
+  font: 500 12px/1 var(--mono);
+  opacity: 0.6;
+}
+.carteira-endereco:hover {
+  opacity: 1;
+}
+
+.painel-carteira .faucet {
+  margin: 14px 0 0;
+}
+
+/* -------------------------------------------------------- retrospecto */
+
+.estat {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.estat-item {
+  display: grid;
+  gap: 2px;
+  padding: 10px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+.estat-numero {
+  font: 700 19px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+}
+
+.estat-rotulo {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.estat-saldo {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+}
+
+.estat-saldo strong {
+  font-variant-numeric: tabular-nums;
+}
+.estat-saldo.positivo strong {
+  color: var(--chalk);
+}
+.estat-saldo.negativo strong {
+  color: #e06c5b;
+}
+
+/* ------------------------------------------ histórico na coluna estreita */
+
+/* Em 340px a linha de cinco campos não cabe numa altura só: resultado e valor
+   em cima, data e prova embaixo. */
+.coluna .hist-linha {
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+}
+
+.coluna .hist-quando,
+.coluna .hist-prova,
+.coluna .hist-link {
+  grid-column: 1 / -1;
+}
+
+.coluna .hist-quando {
+  font-size: 11px;
+}
+
+.coluna .hist-link {
+  justify-self: start;
+}
+
+/* A sala própria é UMA coisa só: esticá-la por 1180px deixaria os rótulos
+   longe dos valores, que é o oposto de legível. */
+.sala-unica {
+  max-width: 520px;
+  margin: 0 auto;
 }
