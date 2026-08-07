@@ -13,3 +13,6 @@ keypairs/
 
 # Carteira do faucet de devnet. Nunca comitar chave privada.
 .devnet-faucet.json
+
+# Worktrees de agentes. São cópias temporárias do próprio repo.
+.claude/worktrees/
