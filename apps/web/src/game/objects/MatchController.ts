@@ -2,10 +2,12 @@ import { Entity } from '@/game/core/entity'
 import {
   CUE_BALL,
   DEFAULT_CUE,
+  applyShot,
   beginShot,
   clampCue,
   cloneState,
   fixed as F,
+  hashState,
   isMoving,
   jitterFromSeed,
   rackBalls,
@@ -27,7 +29,13 @@ import {
   type MatchSummary,
   type PendingDecision,
 } from '@zinc-pool/engine-rules'
-import { ShotRecorder } from '@zinc-pool/replay'
+import {
+  ShotRecorder,
+  decodeAngle,
+  decodePower,
+  decodeSpin,
+  type EncodedShot,
+} from '@zinc-pool/replay'
 
 /**
  * Dono do estado da partida.
@@ -108,8 +116,28 @@ export class MatchController extends Entity {
     return this.mode.pendingOf(this.rules as never)
   }
 
+  /**
+   * Ligação com o servidor. Ausente em hotseat.
+   *
+   * Quando presente, a mesa vira uma PREVISÃO: a tacada é aplicada aqui na
+   * hora, para o jogador não esperar a rede, e mandada ao servidor. Como a
+   * física é determinística e o servidor recebe os mesmos inteiros, a previsão
+   * é exata — não existe rollback a fazer, só a conferência do hash.
+   */
+  net: {
+    you: 0 | 1
+    submit(shot: EncodedShot): void
+  } | null = null
+
+  /** Divergência detectada entre a nossa mesa e a do servidor. */
+  desync: string | null = null
+
   get canShoot(): boolean {
-    return this.phase === 'aiming' && this.pending === null
+    if (this.phase !== 'aiming' || this.pending !== null) return false
+    // Em rede, só na própria vez. O servidor recusaria de qualquer forma; a
+    // guarda aqui é para a mira nem aparecer fora do turno.
+    if (this.net && this.summary.turn !== this.net.you) return false
+    return true
   }
 
   /**
@@ -175,6 +203,10 @@ export class MatchController extends Entity {
 
     const tacada = this.recorder.take(angle, Math.max(0, Math.min(1, power)), spin)
 
+    // Manda antes de simular: a rede leva mais tempo que a simulação, e o
+    // servidor precisa dos mesmos inteiros que acabamos de gravar.
+    this.net?.submit(tacada.encoded)
+
     beginShot(this.table, {
       intent: {
         angle: F.from(tacada.angle),
@@ -189,6 +221,46 @@ export class MatchController extends Entity {
     this.#steps = 0
     this.phase = 'simulating'
     this.lastMessage = null
+  }
+
+  /**
+   * Tacada vinda do servidor.
+   *
+   * Para a tacada do adversário, aplica. Para a nossa, que já foi aplicada por
+   * previsão, apenas confere o hash — se divergir, a nossa mesa deixou de
+   * representar a partida e insistir só pioraria.
+   */
+  applyRemoteShot(by: 0 | 1, shot: EncodedShot, stateHash: string): void {
+    if (this.net && by === this.net.you) {
+      const nosso = hashState(this.table)
+      if (nosso !== stateHash && this.phase !== 'simulating') {
+        this.desync = `mesa divergiu do servidor (${nosso} ≠ ${stateHash})`
+      }
+      return
+    }
+
+    this.recorder.record(shot)
+
+    // Roda de uma vez, sem animar: a tacada já aconteceu do outro lado, e
+    // reproduzi-la quadro a quadro só atrasaria a nossa mesa em relação à
+    // partida real.
+    const resultado = applyShot(this.table, {
+      intent: {
+        angle: F.from(decodeAngle(shot.angle)),
+        power: F.from(decodePower(shot.power)),
+        spin: { x: F.from(decodeSpin(shot.spinX)), y: F.from(decodeSpin(shot.spinY)) },
+      },
+      cue: this.cues[by],
+      isBreak: this.recorder.shotCount === 1,
+    })
+
+    this.#events = [...resultado.events]
+    this.#resolveShot()
+
+    const nosso = hashState(this.table)
+    if (nosso !== stateHash) {
+      this.desync = `mesa divergiu do servidor (${nosso} ≠ ${stateHash})`
+    }
   }
 
   /** Recoloca a branca (bola na mão). */

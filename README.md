@@ -9,7 +9,7 @@ qualquer pessoa, para sempre.
 | Program ID | `4Y3qRV52756DJgJDzvj9z5et5LX4Wr1Jm9cVEK4sS3ht` |
 | Rede | devnet |
 | Física | v1 · digest `1751bd8c` |
-| Testes | 403 |
+| Testes | 412 |
 
 ## Rodar
 
@@ -25,6 +25,7 @@ de teste. Ou use o botão **Pedir SOL de teste** na própria interface.
 |---|---|
 | `/` | lobby com mesas e depósitos |
 | `/play.html` | mesa jogável (hotseat, sem rede nem dinheiro) |
+| `/mesa.html` | mesa apostada contra outra pessoa |
 | `/admin.html` | mesas abertas, cofres, prazos |
 | `/determinism.html` | verifica se este navegador reproduz a física |
 

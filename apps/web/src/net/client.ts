@@ -63,6 +63,16 @@ export class GameClient {
   #reconnectTimer: number | null = null
   #closedByUs = false
 
+  /**
+   * Ouvintes das mensagens de PARTIDA.
+   *
+   * Separado do `subscribe` do lobby de propósito: o lobby é um estado que a
+   * interface redesenha, enquanto a partida é uma sequência de eventos que a
+   * cena precisa aplicar em ordem. Espremer os dois no mesmo canal faria a
+   * cena redesenhar a mesa a cada saldo que chegasse.
+   */
+  #matchListeners = new Set<(msg: MatchMessage) => void>()
+
   /** Resolve quando o servidor responde `deposit.required`. */
   #depositWaiter: ((msg: Extract<ServerMessage, { t: 'deposit.required' }>) => void) | null = null
 
@@ -84,6 +94,46 @@ export class GameClient {
     this.#listeners.add(listener)
     listener(this.state)
     return () => this.#listeners.delete(listener)
+  }
+
+  /** Ouve as mensagens de partida, na ordem em que chegam. */
+  onMatch(listener: (msg: MatchMessage) => void): () => void {
+    this.#matchListeners.add(listener)
+    return () => this.#matchListeners.delete(listener)
+  }
+
+  // -------------------------------------------------------------- partida
+
+  /** Compromisso com o nonce da quebra. Guarda o segredo para revelar depois. */
+  commitBreak(): void {
+    const nonce = crypto.getRandomValues(new Uint8Array(32))
+    this.#nonce = nonce
+    void this.#commitHash(nonce).then((commit) => this.#send({ t: 'match.commit', commit }))
+  }
+
+  /** Revela o nonce guardado. Só funciona depois de `commitBreak`. */
+  revealBreak(): void {
+    if (!this.#nonce) return
+    this.#send({ t: 'match.reveal', nonce: toHex(this.#nonce) })
+  }
+
+  shoot(shot: { angle: number; power: number; spinX: number; spinY: number }): void {
+    this.#send({ t: 'match.shoot', ...shot })
+  }
+
+  decide(option: number): void {
+    this.#send({ t: 'match.decide', option })
+  }
+
+  forfeit(): void {
+    this.#send({ t: 'match.forfeit' })
+  }
+
+  #nonce: Uint8Array | null = null
+
+  async #commitHash(nonce: Uint8Array): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', nonce as BufferSource)
+    return toHex(new Uint8Array(digest))
   }
 
   #patch(patch: Partial<NetState>): void {
@@ -142,6 +192,13 @@ export class GameClient {
   }
 
   #onMessage(msg: ServerMessage): void {
+    // Mensagens de partida seguem direto para quem estiver jogando, sem passar
+    // pelo estado do lobby: a cena precisa da ORDEM, não de um instantâneo.
+    if (MATCH_MESSAGES.has(msg.t)) {
+      for (const l of this.#matchListeners) l(msg as MatchMessage)
+      return
+    }
+
     switch (msg.t) {
       case 'hello':
         this.#patch({
@@ -417,3 +474,35 @@ function safeJson(text: unknown): unknown {
     return null
   }
 }
+
+/** Mensagens que pertencem à partida, e não ao lobby. */
+export type MatchMessage = Extract<
+  ServerMessage,
+  {
+    t:
+      | 'match.begin'
+      | 'match.reveal.open'
+      | 'match.start'
+      | 'match.shot'
+      | 'match.decision'
+      | 'match.decided'
+      | 'match.opponentOffline'
+      | 'match.opponentOnline'
+      | 'match.end'
+  }
+>
+
+const MATCH_MESSAGES = new Set<ServerMessage['t']>([
+  'match.begin',
+  'match.reveal.open',
+  'match.start',
+  'match.shot',
+  'match.decision',
+  'match.decided',
+  'match.opponentOffline',
+  'match.opponentOnline',
+  'match.end',
+])
+
+const toHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')

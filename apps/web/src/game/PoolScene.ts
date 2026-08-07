@@ -28,7 +28,8 @@ export type PoolSceneHandle = {
 export function createPoolScene(
   canvas: HTMLCanvasElement,
   modeId: GameModeId,
-  seed = 1,
+  /** Número em hotseat; os 32 bytes do commit-reveal numa mesa em rede. */
+  seed: number | Uint8Array = 1,
 ): PoolSceneHandle {
   const scene = new Scene()
 

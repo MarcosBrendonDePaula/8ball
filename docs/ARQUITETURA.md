@@ -555,10 +555,10 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M1 física determinística | pronto, verificado Bun ≡ Chrome |
 | M2 regras | pronto, duas modalidades |
 | M3 mesa jogável | pronto — mesa, mira e gravação de replay |
-| M4 multiplayer | núcleo pronto: turnos, relógio, W.O.; falta a interface |
+| M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**403 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**412 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 

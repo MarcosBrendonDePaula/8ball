@@ -24,6 +24,7 @@ import { Lobby, LobbyError } from '@/lobby'
 import { MatchRuleError, REVEAL_TIMEOUT_MS, DISCONNECT_GRACE_MS } from '@/match'
 import { Matches } from '@/matches'
 import { startSweeper } from '@/sweeper'
+import { settleMatch } from '@/settlement'
 import { ClientMessage, DECIMALS, type ErrorCode, type ServerMessage } from '@zinc-pool/protocol'
 
 const chain = new SolanaChain()
@@ -198,6 +199,11 @@ matches.subscribe((event) => {
         reason: event.result.reason,
         replay: Buffer.from(event.result.replay).toString('hex'),
       })
+
+      // Paga o vencedor e grava o replay. Sem isto, o dinheiro ficaria parado
+      // até o prazo e o VARREDOR o devolveria como empate — quem ganhou
+      // receberia a entrada de volta em vez do pote.
+      void liquidar(event.matchId, event.players, event.result)
       break
     }
   }
@@ -449,6 +455,49 @@ console.log(`  programa: ${chain.programId}`)
 void chain.getLimits().then(({ minStake, maxStake }) => {
   console.log(`  entrada:  ${minStake} .. ${maxStake} lamports (lidos do Config on-chain)`)
 })
+
+// ------------------------------------------------------------- liquidação
+
+/**
+ * Chave do referee, carregada uma vez.
+ *
+ * Precisa ser exatamente a gravada no `Config` on-chain; o contrato recusa
+ * qualquer outra. Se faltar, o servidor sobe igual e as partidas caem no
+ * reembolso pelo prazo — pior que pagar o vencedor, melhor que travar.
+ */
+const refereeKeypair = (() => {
+  try {
+    const secret = JSON.parse(readFileSync(SWEEPER_KEYPAIR_PATH, 'utf8')) as number[]
+    return Keypair.fromSecretKey(Uint8Array.from(secret))
+  } catch {
+    return null
+  }
+})()
+
+async function liquidar(
+  matchId: string,
+  players: readonly [string, string],
+  result: Parameters<typeof settleMatch>[3],
+): Promise<void> {
+  if (!refereeKeypair) {
+    console.warn(`[settle] sem chave de referee; ${matchId.slice(0, 8)}… irá para reembolso`)
+    return
+  }
+
+  const r = await settleMatch(
+    { connection: chain.connection, referee: refereeKeypair, log: (m) => console.log(m) },
+    matchId,
+    players,
+    result,
+  )
+
+  if (!r.ok && r.retriable) {
+    // Não insiste em laço: a mesa continua na chain e o varredor a resolve
+    // depois do prazo. Insistir aqui gastaria taxa contra um RPC que já se
+    // mostrou indisponível.
+    console.warn(`[settle] ${matchId.slice(0, 8)}… não liquidou: ${r.reason}`)
+  }
+}
 
 // --------------------------------------------------------------- varredor
 

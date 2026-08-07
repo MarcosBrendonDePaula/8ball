@@ -44,6 +44,7 @@ export default defineConfig({
         admin: r('./admin.html'),
         determinism: r('./determinism.html'),
         play: r('./play.html'),
+        mesa: r('./mesa.html'),
       },
     },
   },

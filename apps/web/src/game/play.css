@@ -93,3 +93,92 @@ body.play #app {
   touch-action: none;
   user-select: none;
 }
+
+/* ---------------------------------------------------------- mesa em rede */
+
+.net-aviso,
+.net-erro,
+.net-fim,
+.net-decisao,
+.net-espera {
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.net-status {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.net-desistir {
+  margin-left: auto;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.net-desistir:hover {
+  border-color: #e06c5b;
+  color: #e06c5b;
+}
+
+.net-painel {
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem 1rem;
+}
+
+.net-vez {
+  display: flex;
+  gap: 1.25rem;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+/* O relógio é o único elemento que muda de cor: é a informação que o jogador
+   precisa perceber sem estar olhando para ela. */
+#relogio {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+#relogio.urgente {
+  color: #e06c5b;
+}
+
+.net-decisao {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.net-decisao button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.net-decisao button:hover {
+  border-color: #6fcf8b;
+  color: #6fcf8b;
+}
+
+.net-fim {
+  display: grid;
+  gap: 0.4rem;
+  text-align: center;
+}
+.net-fim.venceu strong {
+  color: #6fcf8b;
+}
+.net-fim.perdeu strong {
+  color: #e06c5b;
+}
+
+.net-erro strong {
+  color: #e0b95b;
+}
