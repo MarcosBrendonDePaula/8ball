@@ -12,10 +12,13 @@ import { SolanaChain } from '@/chain'
 import { faucetIsAvailable, requestFaucet } from '@/faucet'
 import { CLUSTER, MATCH_TIMEOUT_SECONDS, PORT, TOKEN_SYMBOL } from '@/config'
 import { Lobby, LobbyError } from '@/lobby'
+import { MatchRuleError, REVEAL_TIMEOUT_MS, DISCONNECT_GRACE_MS } from '@/match'
+import { Matches } from '@/matches'
 import { ClientMessage, DECIMALS, type ErrorCode, type ServerMessage } from '@zinc-pool/protocol'
 
 const chain = new SolanaChain()
 const lobby = new Lobby(chain)
+const matches = new Matches()
 
 type Session = { address: string | null; subscribed: boolean }
 
@@ -65,6 +68,131 @@ lobby.subscribe((event) => {
   }
 })
 
+/** Manda a mensagem só para carteiras específicas. */
+function toPlayers(enderecos: readonly string[], message: ServerMessage): void {
+  const alvo = new Set(enderecos)
+  broadcast(message, (s) => s.address !== null && alvo.has(s.address))
+}
+
+/** Manda a mensagem só para os dois jogadores de uma partida em andamento. */
+function toMatch(matchId: string, message: ServerMessage): void {
+  const m = matches.get(matchId)
+  if (!m) return
+  toPlayers(
+    m.players.map((p) => p.address),
+    message,
+  )
+}
+
+matches.subscribe((event) => {
+  switch (event.t) {
+    case 'begin': {
+      // Ainda não existe uma `Match`: os dois precisam se comprometer com o
+      // nonce antes. Cada jogador recebe o próprio índice e o do adversário.
+      for (const [i, endereco] of event.players.entries()) {
+        toPlayers([endereco], {
+          t: 'match.begin',
+          matchId: event.matchId,
+          mode: event.mode,
+          you: i === 0 ? 0 : 1,
+          opponent: event.players[i === 0 ? 1 : 0]!,
+          revealDeadline: Date.now() + REVEAL_TIMEOUT_MS,
+        })
+      }
+      break
+    }
+
+    case 'revealOpen':
+      toMatch(event.matchId, { t: 'match.reveal.open' })
+      break
+
+    case 'start': {
+      const m = matches.get(event.matchId)!
+      toMatch(event.matchId, {
+        t: 'match.start',
+        seed: Buffer.from(event.seed).toString('hex'),
+        turn: m.turn ?? 0,
+        deadline: m.deadline ?? 0,
+      })
+      break
+    }
+
+    case 'shot': {
+      const m = matches.get(event.matchId)
+      const v = event.view
+      toMatch(event.matchId, {
+        t: 'match.shot',
+        by: v.by,
+        angle: v.shot.angle,
+        power: v.shot.power,
+        spinX: v.shot.spinX,
+        spinY: v.shot.spinY,
+        stateHash: v.stateHash,
+        turn: m?.turn ?? null,
+        deadline: m?.deadline ?? null,
+        status: v.summary.status,
+        score: v.summary.score,
+        onTable: v.summary.onTable,
+      })
+      break
+    }
+
+    case 'decision': {
+      const m = matches.get(event.matchId)
+      const p = m?.pending
+      if (!m || !p) return
+      toMatch(event.matchId, {
+        t: 'match.decision',
+        chooser: p.chooser,
+        kind: p.kind,
+        options: [...p.options],
+        deadline: m.deadline ?? 0,
+      })
+      break
+    }
+
+    case 'decided': {
+      const m = matches.get(event.matchId)
+      toMatch(event.matchId, {
+        t: 'match.decided',
+        chooser: event.chooser,
+        option: event.option,
+        rerack: event.rerack,
+        turn: m?.turn ?? null,
+        deadline: m?.deadline ?? null,
+      })
+      break
+    }
+
+    case 'offline':
+    case 'online': {
+      const m = matches.get(event.matchId)
+      if (!m) return
+      const caiu = m.players[event.who].address
+      const mensagem: ServerMessage =
+        event.t === 'offline'
+          ? { t: 'match.opponentOffline', until: Date.now() + DISCONNECT_GRACE_MS }
+          : { t: 'match.opponentOnline' }
+      // Só o ADVERSÁRIO precisa saber; quem caiu não está ouvindo mesmo.
+      broadcast(mensagem, (s) => s.address !== null && s.address !== caiu && m.indexOf(s.address) !== null)
+      break
+    }
+
+    case 'end': {
+      // A partida já saiu do registro; os destinatários vêm do evento. Mandar
+      // por `toMatch` aqui não acharia ninguém, e um filtro frouxo mandaria o
+      // resultado para todos os conectados.
+      toPlayers(event.players, {
+        t: 'match.end',
+        winner: event.result.winner,
+        reason: event.result.reason,
+        replay: Buffer.from(event.result.replay).toString('hex'),
+      })
+      break
+    }
+  }
+})
+
 async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: string): Promise<void> {
   if (msg.t === 'ping') {
     send(ws, { t: 'pong' })
@@ -86,6 +214,9 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
 
       ws.data.address = address
       send(ws, { t: 'auth.ok', address, sessionToken: session.token, expiresAt: session.expiresAt })
+      // Voltar a autenticar cancela a contagem de abandono: o jogador está de
+      // volta e a partida continua de onde parou.
+      matches.markOnline(address)
       await pushBalance(ws)
       send(ws, { t: 'room.self', room: lobby.roomOf(address) })
     } catch (err) {
@@ -151,6 +282,43 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
         const room = await lobby.confirmJoin(address, msg.roomId)
         await pushBalance(ws)
         pushRoomSelf([room.creator, room.opponent])
+
+        // Os dois depósitos estão confirmados na chain: a partida pode nascer.
+        // A modalidade ainda não é escolhida na sala; entra 8-Ball por padrão
+        // até o seletor existir no lobby.
+        if (room.state === 'committed' && room.opponent) {
+          matches.open(room.matchId, 'eightball', [room.creator, room.opponent])
+        }
+        break
+      }
+
+      case 'match.commit': {
+        matches.commit(address, msg.commit)
+        break
+      }
+
+      case 'match.reveal': {
+        matches.reveal(address, Uint8Array.from(Buffer.from(msg.nonce, 'hex')))
+        break
+      }
+
+      case 'match.shoot': {
+        matches.shoot(address, {
+          angle: msg.angle,
+          power: msg.power,
+          spinX: msg.spinX,
+          spinY: msg.spinY,
+        })
+        break
+      }
+
+      case 'match.decide': {
+        matches.decide(address, msg.option)
+        break
+      }
+
+      case 'match.forfeit': {
+        matches.forfeit(address)
         break
       }
 
@@ -164,6 +332,7 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
     }
   } catch (err) {
     if (err instanceof LobbyError) fail(ws, err.code, err.message)
+    else if (err instanceof MatchRuleError) fail(ws, err.code, err.message)
     else {
       console.error('[lobby]', err)
       fail(ws, 'internal', 'Erro interno.')
@@ -242,6 +411,11 @@ const server = Bun.serve<Session, never>({
       sockets.delete(ws)
       // Desconectar não mexe em nada on-chain. O depósito continua na PDA e
       // só o dono da chave pode movê-lo.
+      //
+      // Na partida, porém, sumir tem consequência: começa a contar a
+      // tolerância de abandono. Sem isso, quem está perdendo fecharia a aba e
+      // prenderia o dinheiro do adversário até o prazo on-chain.
+      if (ws.data.address) matches.markOffline(ws.data.address)
     },
   },
 })

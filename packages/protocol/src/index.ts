@@ -23,8 +23,12 @@ export const DECIMALS = 9
 export const RoomState = z.enum([
   /** Criador depositou on-chain, esperando oponente. */
   'waiting',
-  /** Os dois depositaram. Próximo passo é a partida (M3). */
+  /** Os dois depositaram; a partida vai começar. */
   'committed',
+  /** Partida em andamento. */
+  'playing',
+  /** Acabou; aguardando liquidação on-chain. */
+  'settled',
 ])
 export type RoomState = z.infer<typeof RoomState>
 
@@ -60,6 +64,16 @@ export const ErrorCode = z.enum([
   'chain_error',
   'rate_limited',
   'internal',
+
+  // Partida
+  'match_not_found',
+  'not_your_turn',
+  'wrong_phase',
+  'bad_shot',
+  'bad_decision',
+  'unknown_player',
+  'already_revealed',
+  'bad_reveal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCode>
 
@@ -92,6 +106,37 @@ export const ClientMessage = z.discriminatedUnion('t', [
 
   /** O cancelamento já foi assinado e enviado; sincronize o lobby. */
   z.object({ t: z.literal('lobby.confirmCancel'), roomId: z.string() }),
+
+  // ------------------------------------------------------------- partida
+
+  /**
+   * Compromisso com o nonce da quebra.
+   *
+   * O jogador sorteia 32 bytes em segredo e manda só o hash. Depois que os
+   * dois se comprometeram, ambos revelam — e o seed sai do hash dos dois
+   * nonces juntos. Sem isso, quem escolhesse o seed escolheria a quebra: com
+   * física determinística, é o mesmo que escolher onde as bolas param.
+   */
+  z.object({ t: z.literal('match.commit'), commit: z.string().regex(/^[0-9a-f]{64}$/) }),
+  z.object({ t: z.literal('match.reveal'), nonce: z.string().regex(/^[0-9a-f]{64}$/) }),
+
+  /**
+   * A tacada, já quantizada.
+   *
+   * São exatamente os inteiros que vão para o replay. Não existe conversão no
+   * meio do caminho onde cliente e servidor possam discordar por um bit.
+   */
+  z.object({
+    t: z.literal('match.shoot'),
+    angle: z.number().int().min(0).max(65_535),
+    power: z.number().int().min(0).max(255),
+    spinX: z.number().int().min(-127).max(127),
+    spinY: z.number().int().min(-127).max(127),
+  }),
+
+  /** Escolha numa decisão aberta pelas regras. */
+  z.object({ t: z.literal('match.decide'), option: z.number().int().min(0).max(255) }),
+  z.object({ t: z.literal('match.forfeit') }),
 
   z.object({ t: z.literal('ping') }),
 ])
@@ -136,6 +181,84 @@ export const ServerMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('lobby.upsert'), room: Room }),
   z.object({ t: z.literal('lobby.remove'), roomId: z.string() }),
   z.object({ t: z.literal('room.self'), room: Room.nullable() }),
+  // ------------------------------------------------------------- partida
+
+  /** A partida existe; mande o compromisso. */
+  z.object({
+    t: z.literal('match.begin'),
+    matchId: z.string(),
+    mode: z.enum(['eightball', 'sinuca']),
+    /** Índice deste jogador: 0 ou 1. */
+    you: z.union([z.literal(0), z.literal(1)]),
+    opponent: z.string(),
+    revealDeadline: z.number(),
+  }),
+
+  /** Os dois se comprometeram; pode revelar. */
+  z.object({ t: z.literal('match.reveal.open') }),
+
+  /** A quebra está definida e a partida começou. */
+  z.object({
+    t: z.literal('match.start'),
+    /** Seed da quebra em hex — o cliente arma a mesma mesa. */
+    seed: z.string().regex(/^[0-9a-f]{64}$/),
+    turn: z.union([z.literal(0), z.literal(1)]),
+    deadline: z.number(),
+  }),
+
+  /**
+   * Uma tacada aconteceu.
+   *
+   * Vai a tacada e o hash do estado resultante. O cliente simula a MESMA
+   * tacada localmente e compara: se divergir, ele sabe na hora, em vez de
+   * mostrar uma mesa que não é a real até o fim da partida.
+   */
+  z.object({
+    t: z.literal('match.shot'),
+    by: z.union([z.literal(0), z.literal(1)]),
+    angle: z.number().int(),
+    power: z.number().int(),
+    spinX: z.number().int(),
+    spinY: z.number().int(),
+    stateHash: z.string(),
+    turn: z.union([z.literal(0), z.literal(1)]).nullable(),
+    deadline: z.number().nullable(),
+    status: z.string(),
+    score: z.tuple([z.number(), z.number()]).nullable(),
+    onTable: z.array(z.number()),
+  }),
+
+  /** Alguém precisa escolher antes da próxima tacada. */
+  z.object({
+    t: z.literal('match.decision'),
+    chooser: z.union([z.literal(0), z.literal(1)]),
+    kind: z.string(),
+    options: z.array(z.string()),
+    deadline: z.number(),
+  }),
+
+  /** A escolha foi aplicada. `rerack` avisa que o triângulo foi rearmado. */
+  z.object({
+    t: z.literal('match.decided'),
+    chooser: z.union([z.literal(0), z.literal(1)]),
+    option: z.number(),
+    rerack: z.boolean(),
+    turn: z.union([z.literal(0), z.literal(1)]).nullable(),
+    deadline: z.number().nullable(),
+  }),
+
+  /** O adversário caiu; contando a tolerância. */
+  z.object({ t: z.literal('match.opponentOffline'), until: z.number() }),
+  z.object({ t: z.literal('match.opponentOnline') }),
+
+  z.object({
+    t: z.literal('match.end'),
+    winner: z.union([z.literal(0), z.literal(1)]).nullable(),
+    reason: z.enum(['regras', 'desistência', 'tempo', 'abandono']),
+    /** Replay em hex, para o cliente conferir por conta própria. */
+    replay: z.string(),
+  }),
+
   z.object({ t: z.literal('error'), code: ErrorCode, message: z.string() }),
   z.object({ t: z.literal('pong') }),
 ])

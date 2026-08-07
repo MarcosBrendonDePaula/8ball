@@ -315,6 +315,62 @@ não adianta fingir o contrário. O que a contrabalança:
 
 ---
 
+## 7.5. A partida em rede — `match` e `matches`
+
+### O servidor decide, o cliente prevê
+
+O cliente manda um vetor de tacada e recebe o que aconteceu. Ele simula em
+paralelo para animar sem esperar a rede, mas o que vale é a cópia do servidor.
+Cada `match.shot` carrega o **hash do estado resultante**: se a previsão do
+cliente divergir, ele sabe na hora, em vez de mostrar uma mesa falsa até o fim.
+
+A tacada trafega **já quantizada** — os mesmos u16/u8/i8 do replay. Não existe
+conversão no meio do caminho onde os dois lados possam discordar por um bit.
+
+### A quebra por commit-reveal
+
+Cada jogador sorteia 32 bytes em segredo e publica só o hash. Com os dois
+comprometidos, ambos revelam, e o seed é `sha256(nonceA ‖ nonceB)`.
+
+Sem isso, quem escolhesse o seed escolheria a quebra: com física
+determinística, escolher a quebra é escolher onde as bolas param — bastaria
+procurar offline um seed favorável. A conferência do nonce contra o commit é o
+que impede o segundo a revelar de escolher depois de ver o do adversário.
+
+### Tempo: um relógio, três regras
+
+| Regra | Prazo | Consequência |
+|---|---|---|
+| Revelação | 60s | partida anulada, sem vencedor |
+| Tacada | 45s | falta; 3 seguidas = W.O. |
+| Desconexão | 90s | W.O. por abandono |
+
+Estourar o prazo de tacada **não inventa uma transição nova**: é registrado
+como uma tacada de força zero. A branca não sai do lugar, as regras julgam
+falta por falta de contato — que é o que a WPA prescreve — e o replay reproduz
+tudo sem nenhum caso especial, por 5 bytes.
+
+Dois detalhes que custaram a acertar:
+
+**A falta passa a vez**, então dois jogadores parados alternam e cada um só
+acumula falta no próprio turno. O W.O. leva o dobro de rodadas.
+
+**Só a tacada voluntária zera a contagem.** Se a tacada nula do relógio também
+zerasse, o jogador estouraria o prazo para sempre e prenderia o dinheiro.
+
+### Por que o relógio é injetado
+
+A `Match` é lógica pura: o tempo entra por parâmetro e nada ali abre socket. O
+`Matches` é o único lugar que lê `Date.now()`, com um `tick` para todas as
+partidas em vez de um `setTimeout` por prazo — com um timer por turno, cancelar
+e reagendar é o caminho mais curto para um W.O. disparado numa partida que já
+acabou.
+
+O ganho aparece nos testes: 24 casos cobrem prazo, W.O., abandono e
+reconexão sem esperar um segundo sequer.
+
+---
+
 ## 8. Fluxo do dinheiro
 
 ### Criar mesa — três tempos
@@ -451,10 +507,10 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M1 física determinística | pronto, verificado Bun ≡ Chrome |
 | M2 regras | pronto, duas modalidades |
 | M3 mesa jogável | pronto — mesa, mira e gravação de replay |
-| M4 multiplayer | não iniciado |
+| M4 multiplayer | núcleo pronto: turnos, relógio, W.O.; falta a interface |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**353 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**395 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 
