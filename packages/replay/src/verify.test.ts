@@ -50,6 +50,9 @@ const replay = (shots: Replay['shots'], placements = POSICOES): Replay => ({
   shots,
   decisions: [],
   placements,
+  // A regra padrão exige declarar a caçapa na bola 8. Sem isto, a verificação
+  // para justamente na tacada que decide a partida.
+  calls: Array.from({ length: 8 }, () => ({ ball: 8, pocket: 0 })),
 })
 
 describe('reprodução', () => {

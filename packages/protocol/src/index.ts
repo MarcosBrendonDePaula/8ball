@@ -144,6 +144,16 @@ export const ClientMessage = z.discriminatedUnion('t', [
     power: z.number().int().min(0).max(255),
     spinX: z.number().int().min(-127).max(127),
     spinY: z.number().int().min(-127).max(127),
+    /**
+     * Bola e caçapa prometidas, quando a regra exige.
+     *
+     * Vai JUNTO da tacada porque é isso que ela é: uma promessa feita antes de
+     * jogar. Numa mensagem separada, o jogador poderia declarar depois de ver
+     * o resultado.
+     */
+    call: z
+      .object({ ball: z.number().int().min(0).max(15), pocket: z.number().int().min(0).max(5) })
+      .optional(),
   }),
 
   /**
@@ -265,6 +275,13 @@ export const ServerMessage = z.discriminatedUnion('t', [
     status: z.string(),
     score: z.tuple([z.number(), z.number()]).nullable(),
     onTable: z.array(z.number()),
+  }),
+
+  /** A tacada da vez exige declarar bola e caçapa. */
+  z.object({
+    t: z.literal('match.callRequired'),
+    who: z.union([z.literal(0), z.literal(1)]),
+    ball: z.number().int(),
   }),
 
   /** Alguém tem bola na mão e precisa colocá-la antes de jogar. */

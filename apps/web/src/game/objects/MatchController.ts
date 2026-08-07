@@ -60,6 +60,9 @@ export type MatchPhase = 'aiming' | 'simulating' | 'finished'
  */
 const SEM_CONFERIR = '(reconstrução)'
 
+/** A única bola que exige declaração com a regra padrão. */
+const BOLA_OITO = 8
+
 export class MatchController extends Entity {
   /** Estado físico da mesa. */
   table: TableState
@@ -77,6 +80,9 @@ export class MatchController extends Entity {
 
   /** Estado antes do passo atual, para interpolar o desenho. */
   #previous: Map<number, { x: number; y: number }> = new Map()
+
+  /** Declaração usada na tacada em curso, para o julgamento. */
+  #declaradaNaTacada: { ball: number; pocket: number } | null = null
 
   #events: CollisionEvent[] = []
   #steps = 0
@@ -136,7 +142,7 @@ export class MatchController extends Entity {
    */
   net: {
     you: 0 | 1
-    submit(shot: EncodedShot): void
+    submit(shot: EncodedShot, call: { ball: number; pocket: number } | null): void
     submitPlacement(p: { x: number; y: number }): void
   } | null = null
 
@@ -160,9 +166,25 @@ export class MatchController extends Entity {
   /** A bola na mão desta vez já foi usada? */
   #placed = false
 
+  /** A tacada da vez exige declarar bola e caçapa? */
+  get callRequired(): boolean {
+    return this.mode.callRequiredOf(this.rules as never)
+  }
+
+  /**
+   * Caçapa declarada para a próxima tacada.
+   *
+   * Escolhida pelo jogador antes de mirar. Sem ela, encaçapar a bola 8 é
+   * falta — e falta na 8 é derrota.
+   */
+  calledPocket: number | null = null
+
   get canShoot(): boolean {
     if (this.phase !== 'aiming' || this.pending !== null) return false
     if (this.ballInHand !== null) return false
+    // Sem declarar, a tacada seria recusada pelo servidor e a mira teria sido
+    // um engano da tela.
+    if (this.callRequired && this.calledPocket === null) return false
     // Em rede, só na própria vez. O servidor recusaria de qualquer forma; a
     // guarda aqui é para a mira nem aparecer fora do turno.
     if (this.net && this.summary.turn !== this.net.you) return false
@@ -231,11 +253,19 @@ export class MatchController extends Entity {
     }
 
     this.#placed = false
+
+    // Grava a declaração ANTES da tacada, na ordem em que o verificador a
+    // consome.
+    const declarada = this.callRequired
+      ? { ball: BOLA_OITO, pocket: this.calledPocket ?? 0 }
+      : null
+    if (declarada) this.recorder.recordCall(declarada.ball, declarada.pocket)
+
     const tacada = this.recorder.take(angle, Math.max(0, Math.min(1, power)), spin)
 
     // Manda antes de simular: a rede leva mais tempo que a simulação, e o
     // servidor precisa dos mesmos inteiros que acabamos de gravar.
-    this.net?.submit(tacada.encoded)
+    this.net?.submit(tacada.encoded, declarada)
 
     beginShot(this.table, {
       intent: {
@@ -246,6 +276,9 @@ export class MatchController extends Entity {
       cue: this.cues[this.summary.turn],
       isBreak: !this.#jaQuebrou,
     })
+
+    this.#declaradaNaTacada = declarada
+    this.calledPocket = null
 
     this.#events = []
     this.#steps = 0
@@ -286,9 +319,20 @@ export class MatchController extends Entity {
   }
 
   /** Aplica uma tacada de fora e julga, sem animar. */
-  #aplicarTacada(by: 0 | 1, shot: EncodedShot): void {
+  #aplicarTacada(by: 0 | 1, shot: EncodedShot, call?: { ball: number; pocket: number }): void {
     // A tacada encerra a bola na mão desta vez; a próxima falta abre outra.
     this.#placed = false
+
+    // Mesma regra do servidor: grava SEMPRE que a regra exige, com um padrão
+    // quando o adversário não informou — pular desalinharia as listas.
+    if (this.callRequired) {
+      const declarada = call ?? { ball: BOLA_OITO, pocket: 0 }
+      this.recorder.recordCall(declarada.ball, declarada.pocket)
+      this.#declaradaNaTacada = declarada
+    } else {
+      this.#declaradaNaTacada = null
+    }
+
     this.recorder.record(shot)
 
     // Roda de uma vez, sem animar: a tacada já aconteceu do outro lado, e
@@ -366,6 +410,12 @@ export class MatchController extends Entity {
   placeCueBall(x: number, y: number): void {
     if (this.ballInHand === null) return
 
+    // Numa mesa em rede, a bola na mão é de UM jogador. Sem esta guarda o
+    // cliente do adversário aplicava a posição localmente e a gravava no
+    // próprio replay, enquanto o servidor recusava — e as duas mesas
+    // divergiam de forma permanente, sem nada acusar até a tacada seguinte.
+    if (this.net && this.summary.turn !== this.net.you) return
+
     const onde = this.recorder.placeCueBall(x, y)
     this.net?.submitPlacement(onde)
     placeCueBall(this.table, F.from(onde.x), F.from(onde.y))
@@ -417,7 +467,9 @@ export class MatchController extends Entity {
     // Estas três chamadas são compartilhadas com o verificador de replay
     // (engine-rules/bridge.ts). Não reimplemente nenhuma delas aqui: é
     // exatamente a divergência entre as duas cópias que quebra a auditoria.
-    const outcome = fullOutcome(outcomeFromEvents(this.#events))
+    const outcome = fullOutcome(outcomeFromEvents(this.#events), {
+      called: this.#declaradaNaTacada,
+    })
     const { state, ruling } = this.mode.play(this.rules as never, outcome as never)
 
     this.rules = state

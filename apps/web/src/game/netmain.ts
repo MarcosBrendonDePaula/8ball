@@ -73,6 +73,16 @@ partida.subscribe((s) => {
   for (const botao of painel.querySelectorAll<HTMLButtonElement>('[data-opcao]')) {
     botao.onclick = () => client.decide(Number(botao.dataset.opcao))
   }
+
+  for (const botao of painel.querySelectorAll<HTMLButtonElement>('[data-cacapa]')) {
+    botao.onclick = () => {
+      // A escolha fica no controlador: é ela que libera a mira e viaja junto
+      // da tacada. Mandar numa mensagem separada deixaria o jogador declarar
+      // depois de ver o resultado.
+      if (cena) cena.match.calledPocket = Number(botao.dataset.cacapa)
+      painel.innerHTML = montarPainel(partida.state)
+    }
+  }
 })
 
 /**
@@ -135,6 +145,19 @@ function montarPainel(s: NetMatchState): string {
     </div>`
   }
 
+  // Declarar a caçapa vem antes de tudo: sem isso a mira nem aparece, e
+  // encaçapar a bola 8 sem declarar é DERROTA pela regra da WPA.
+  if (s.callRequired && s.turn === s.you && cena && cena.match.calledPocket === null) {
+    return `<div class="net-decisao">
+      <strong>Declare a caçapa da bola 8</strong>
+      ${CACAPAS.map((nome, i) => `<button data-cacapa="${i}">${nome}</button>`).join('')}
+    </div>`
+  }
+
+  if (s.callRequired && s.turn !== s.you) {
+    return `<div class="net-espera">Adversário está na bola 8…</div>`
+  }
+
   if (s.decision) {
     const minha = s.decision.chooser === s.you
     if (!minha) return `<div class="net-espera">Adversário está escolhendo…</div>`
@@ -155,3 +178,19 @@ function montarPainel(s: NetMatchState): string {
     <span>${s.mensagem ?? ''}</span>
   </div>`
 }
+
+/**
+ * Nomes das caçapas, na ordem do motor.
+ *
+ * A ORDEM é a de `POCKETS` em `table.ts` e é parte do formato do replay: o
+ * índice é o que fica gravado. Trocar a ordem faria replays antigos apontarem
+ * outra caçapa declarada.
+ */
+const CACAPAS = [
+  'Inferior esquerda',
+  'Inferior meio',
+  'Inferior direita',
+  'Superior esquerda',
+  'Superior meio',
+  'Superior direita',
+]

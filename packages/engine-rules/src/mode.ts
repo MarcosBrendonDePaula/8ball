@@ -79,6 +79,17 @@ export type GameMode<TState = unknown, TOutcome = unknown, TRuling = unknown> = 
    * outra partida.
    */
   ballInHandOf(state: TState): BallInHandRegion | null
+  /**
+   * O jogador da vez precisa declarar bola e caçapa nesta tacada?
+   *
+   * A WPA exige na bola 8: dizer ANTES em qual buraco ela vai cair, para
+   * ninguém ganhar de sorte. Sem declarar, encaçapar a 8 é falta — e falta na
+   * 8 é DERROTA.
+   *
+   * Precisa estar no contrato comum porque quem declara é a interface, e ela
+   * não conhece o estado concreto de nenhuma modalidade.
+   */
+  callRequiredOf(state: TState): boolean
   /** Aplica a escolha do jogador e libera a próxima tacada. */
   resolve(state: TState, optionIndex: number): DecisionOutcome<TState>
   /** Desistência ou W.O. por tempo. */
@@ -182,6 +193,7 @@ const eightballMode: GameMode<
     return { chooser: p.chooser, kind: p.kind, options: BREAK_CHOICES_LABELS }
   },
   ballInHandOf: (state) => (state.ballInHand.active ? state.ballInHand.region : null),
+  callRequiredOf: (state) => eightball.callRequired(state),
   resolve: (state, optionIndex) => {
     const escolha = BREAK_CHOICES[optionIndex]
     if (!escolha) {
@@ -238,6 +250,9 @@ const sinucaMode: GameMode<
   // A sinuca não tem a regra da cozinha: falta dá a bola na mão em qualquer
   // ponto livre.
   ballInHandOf: (state) => (state.ballInHand ? 'anywhere' : null),
+  // A sinuca brasileira não tem bola declarada: a bola da vez é imposta pela
+  // ordem crescente, então não há o que escolher.
+  callRequiredOf: () => false,
   forfeit: (state, quem) => sinuca.forfeitSinuca(state, quem),
   winnerOf: (state) => state.winner,
   summarize: (state) => {

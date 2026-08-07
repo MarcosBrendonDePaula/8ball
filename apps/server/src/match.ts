@@ -292,7 +292,17 @@ export class Match {
    * faixas aqui não é paranoia: um cliente adulterado poderia mandar um u16
    * fora da volta ou uma força acima do máximo, e a física obedeceria.
    */
-  shoot(address: string, shot: EncodedShot, now: number): ShotResultView {
+  /** A tacada da vez exige declarar bola e caçapa? */
+  get callRequired(): boolean {
+    return this.rules !== null && this.modeApi.callRequiredOf(this.rules as never)
+  }
+
+  shoot(
+    address: string,
+    shot: EncodedShot,
+    now: number,
+    call?: { ball: number; pocket: number },
+  ): ShotResultView {
     const quem = this.#requirePlayer(address)
     if (this.phase !== 'playing') {
       throw new MatchRuleError('wrong_phase', 'A partida não está esperando uma tacada.')
@@ -310,17 +320,34 @@ export class Match {
     }
     validarTacada(shot)
 
-    return this.#applyShot(quem, shot, now)
+    if (this.callRequired && !call) {
+      throw new MatchRuleError('bad_shot', 'Declare a caçapa antes de jogar na bola 8.')
+    }
+
+    return this.#applyShot(quem, shot, now, call)
   }
 
   /** Caminho único de aplicar tacada, usado pelo jogador e pelo prazo. */
-  #applyShot(quem: 0 | 1, shot: EncodedShot, now: number): ShotResultView {
+  #applyShot(
+    quem: 0 | 1,
+    shot: EncodedShot,
+    now: number,
+    call?: { ball: number; pocket: number },
+  ): ShotResultView {
     const table = this.table!
     const recorder = this.recorder!
 
     // A tacada encerra a bola na mão desta vez; a próxima falta abre outra.
     this.#placed = false
 
+    // A declaração é gravada ANTES da tacada, na ordem em que o verificador a
+    // consome, e SEMPRE que a regra exige — inclusive na tacada nula que o
+    // relógio dispara. O verificador consome uma declaração por tacada exigida;
+    // pular a do relógio desalinharia as duas listas dali em diante.
+    if (this.callRequired) {
+      const declarada = call ?? CACAPA_PADRAO
+      recorder.recordCall(declarada.ball, declarada.pocket)
+    }
     recorder.record(shot)
 
     const resultado = applyShot(table, {
@@ -334,7 +361,9 @@ export class Match {
     })
 
     // As mesmas três chamadas do cliente e do verificador de replay.
-    const outcome = fullOutcome(outcomeFromEvents(resultado.events))
+    const outcome = fullOutcome(outcomeFromEvents(resultado.events), {
+      called: call ?? null,
+    })
     const { state, ruling } = this.modeApi.play(this.rules as never, outcome as never)
     this.rules = state
     settleTable(table, ruling, { ballInHand: this.ballInHand !== null })
@@ -574,6 +603,15 @@ const outro = (quem: 0 | 1): 0 | 1 => (quem === 0 ? 1 : 0)
  * violação de tempo. Reproduz no replay sem nenhum caso especial.
  */
 const TACADA_NULA: EncodedShot = { angle: 0, power: 0, spinX: 0, spinY: 0 }
+
+/**
+ * Declaração usada quando o relógio joga pelo jogador.
+ *
+ * Nada é encaçapado numa tacada de força zero, então a declaração não muda o
+ * julgamento — a falta será por falta de contato. Ela existe só para as listas
+ * do jogo e do verificador continuarem alinhadas.
+ */
+const CACAPA_PADRAO = { ball: 8, pocket: 0 }
 
 /**
  * Valida as faixas da tacada.

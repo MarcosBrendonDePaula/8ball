@@ -99,7 +99,8 @@ export function outcomeFromEvents(events: readonly CollisionEvent[]): PhysicsOut
  * senão a verificação diverge.
  */
 export type ShotDeclarations = {
-  called?: unknown
+  /** Bola e caçapa prometidas antes da tacada. */
+  called?: { ball: number; pocket: number } | null
   nominated?: unknown
 }
 
@@ -179,23 +180,79 @@ export function settleTable(
   }
 }
 
+/** Quantas passadas de separação. Sete resolvem qualquer aglomerado real. */
+const PASSADAS_DE_SEPARACAO = 7
+
 /**
  * Põe a branca onde o jogador escolheu.
  *
- * A posição é presa aos limites da mesa aqui, num lugar só: se cada ponta
- * prendesse do seu jeito, uma coordenada logo fora da borda viraria posições
+ * Duas correções acontecem aqui, e as duas precisam estar NESTE arquivo: se
+ * cada ponta ajustasse do seu jeito, a mesma coordenada viraria posições
  * diferentes no jogo e no verificador.
+ *
+ *   - a posição é presa aos limites da mesa
+ *   - a branca é afastada de qualquer bola em que tenha sido largada em cima
+ *
+ * A segunda existe porque sobrepor era possível e não devia ser: a simulação
+ * começaria resolvendo uma colisão que nunca aconteceu, e as duas bolas
+ * saltariam sozinhas antes da tacada.
+ *
+ * O afastamento é determinístico — ordem fixa por id, número fixo de passadas,
+ * tudo em ponto fixo — porque o verificador precisa chegar ao mesmo lugar.
  */
 export function placeCueBall(table: TableState, x: Fixed, y: Fixed): void {
   const branca = table.balls.find((b) => b.id === CUE_BALL)
   if (!branca) return
 
   branca.pocketed = false
-  V.set(
-    branca.position,
-    F.clamp(x, T.BALL_RADIUS, T.WIDTH - T.BALL_RADIUS),
-    F.clamp(y, T.BALL_RADIUS, T.HEIGHT - T.BALL_RADIUS),
-  )
+  V.set(branca.position, dentroDaMesa(x, T.WIDTH), dentroDaMesa(y, T.HEIGHT))
   V.set(branca.velocity, 0, 0)
   V.set(branca.spin, 0, 0)
+
+  separarDasOutras(table, branca)
+}
+
+const dentroDaMesa = (valor: Fixed, extensao: Fixed): Fixed =>
+  F.clamp(valor, T.BALL_RADIUS, extensao - T.BALL_RADIUS)
+
+/**
+ * Empurra a branca para fora de qualquer bola que ela esteja tocando.
+ *
+ * Repete algumas vezes porque afastar de uma bola pode encostar em outra —
+ * caso comum ao largar a branca no meio do aglomerado depois da quebra.
+ */
+function separarDasOutras(table: TableState, branca: TableState['balls'][number]): void {
+  const outras = table.balls
+    .filter((b) => b.id !== CUE_BALL && !b.pocketed)
+    // Ordem fixa: com posições sobrepostas, a ordem muda o resultado, e o
+    // verificador precisa percorrer exatamente a mesma.
+    .sort((a, b) => a.id - b.id)
+
+  for (let passada = 0; passada < PASSADAS_DE_SEPARACAO; passada++) {
+    let mexeu = false
+
+    for (const outra of outras) {
+      const dx = branca.position.x - outra.position.x
+      const dy = branca.position.y - outra.position.y
+      const distancia = F.sqrt(F.mul(dx, dx) + F.mul(dy, dy))
+
+      if (distancia >= T.CONTACT_DISTANCE) continue
+
+      // Largada exatamente em cima: sem direção para empurrar, usa +x. Precisa
+      // ser uma escolha FIXA, não a primeira que der certo.
+      const [ux, uy] =
+        distancia === 0
+          ? [F.ONE, 0]
+          : [F.div(dx, distancia), F.div(dy, distancia)]
+
+      V.set(
+        branca.position,
+        dentroDaMesa(outra.position.x + F.mul(ux, T.CONTACT_DISTANCE), T.WIDTH),
+        dentroDaMesa(outra.position.y + F.mul(uy, T.CONTACT_DISTANCE), T.HEIGHT),
+      )
+      mexeu = true
+    }
+
+    if (!mexeu) return
+  }
 }

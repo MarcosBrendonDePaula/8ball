@@ -250,6 +250,19 @@ export class Lobby {
   }
 
   /**
+   * Tira a sala da listagem porque a partida dela acabou.
+   *
+   * Sem isto a sala ficava para sempre em "comprometida", com o botão de
+   * entrar levando a uma partida que já foi liquidada — e o jogador não
+   * conseguia criar outra mesa, porque um jogador só pode estar em uma.
+   */
+  closeFinished(matchIdHex: string): void {
+    const room = this.#rooms.get(matchIdHex)
+    if (!room) return
+    this.#close(room)
+  }
+
+  /**
    * Tira da listagem as salas que passaram do prazo sem oponente.
    *
    * O servidor NÃO devolve o depósito — não tem como, não é ele quem assina.

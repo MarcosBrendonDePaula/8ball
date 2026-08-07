@@ -91,6 +91,8 @@ const replay: Replay = {
     x: 0.4 + ((i * 7) % 20) / 20,
     y: 0.2 + ((i * 3) % 12) / 20,
   })),
+  // A WPA exige declarar a caçapa na bola 8; sem isso encaçapá-la é falta.
+  calls: Array.from({ length: 8 }, () => ({ ball: 8, pocket: 0 })),
 }
 
 const bytes = encodeReplay(replay)

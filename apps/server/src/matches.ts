@@ -21,6 +21,7 @@ export type MatchEvent =
   | { t: 'shot'; matchId: string; view: ReturnType<Match['shoot']> }
   | { t: 'decision'; matchId: string }
   | { t: 'ballInHand'; matchId: string }
+  | { t: 'callRequired'; matchId: string }
   | { t: 'placed'; matchId: string; by: 0 | 1; x: number; y: number }
   | { t: 'decided'; matchId: string; chooser: 0 | 1; option: number; rerack: boolean }
   | { t: 'offline'; matchId: string; who: 0 | 1 }
@@ -209,9 +210,13 @@ export class Matches {
     }
   }
 
-  shoot(address: string, shot: { angle: number; power: number; spinX: number; spinY: number }): void {
+  shoot(
+    address: string,
+    shot: { angle: number; power: number; spinX: number; spinY: number },
+    call?: { ball: number; pocket: number },
+  ): void {
     const { matchId, match } = this.#require(address)
-    const view = match.shoot(address, shot, this.now())
+    const view = match.shoot(address, shot, this.now(), call)
     this.#emit({ t: 'shot', matchId, view })
     this.#afterAdvance(matchId, match)
   }
@@ -291,6 +296,9 @@ export class Matches {
     if (match.phase === 'playing' && match.ballInHand !== null) {
       this.#emit({ t: 'ballInHand', matchId })
       return
+    }
+    if (match.phase === 'playing' && match.callRequired) {
+      this.#emit({ t: 'callRequired', matchId })
     }
     if (match.phase !== 'finished') return
 

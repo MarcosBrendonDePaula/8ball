@@ -123,6 +123,7 @@ export function verifyReplay(replay: Replay): VerificationResult {
   //
   // Normalizar aqui torna a verificação invariante a como o replay chegou.
   const posicoes = (replay.placements ?? []).map((p) => decodePlacement(encodePlacement(p)))
+  const declaracoes = [...(replay.calls ?? [])]
 
   for (const shot of replay.shots) {
     const resumo = mode.summarize(rules as never)
@@ -160,6 +161,17 @@ export function verifyReplay(replay: Replay): VerificationResult {
     // decisão, que pode ter passado a vez para o outro.
     const cue = clampCue(replay.cues[mode.summarize(rules as never).turn])
 
+    // Declaração de caçapa, quando a regra exige. Lida ANTES da tacada porque
+    // é isso que ela é: uma promessa feita antes de jogar.
+    let called: { ball: number; pocket: number } | null = null
+    if (mode.callRequiredOf(rules as never)) {
+      called = declaracoes.shift() ?? null
+      if (!called) {
+        parou = 'faltou no replay a caçapa declarada'
+        break
+      }
+    }
+
     const resultado = applyShot(table, {
       intent: {
         angle: F.from(decodeAngle(shot.angle)),
@@ -172,7 +184,7 @@ export function verifyReplay(replay: Replay): VerificationResult {
 
     // Exatamente as mesmas três chamadas que o jogo faz, na mesma ordem. Ver
     // o aviso em engine-rules/bridge.ts: se divergirem, o replay não prova nada.
-    const outcome = fullOutcome(outcomeFromEvents(resultado.events))
+    const outcome = fullOutcome(outcomeFromEvents(resultado.events), { called })
     const { state, ruling } = mode.play(rules as never, outcome as never)
     rules = state
     settleTable(table, ruling, {

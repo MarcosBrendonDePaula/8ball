@@ -52,7 +52,7 @@ pub const DEFAULT_PROTOCOL_BPS: u16 = 500;
  * pacote `replay` que trava a igualdade entre os dois lados; se ele falhar,
  * corrija AQUI também.
  */
-pub const MAX_REPLAY_BYTES: usize = 664;
+pub const MAX_REPLAY_BYTES: usize = 680;
 
 /// Tamanho máximo do endereço de arquivamento da especificação.
 /// Uma URL do Arweave tem ~62 caracteres; 128 dá folga para IPFS e afins.

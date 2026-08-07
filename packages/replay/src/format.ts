@@ -51,7 +51,7 @@ import type { GameModeId } from '@zinc-pool/engine-rules'
  * verificador sabe QUANDO uma decisão acontece, então basta gravar QUAL foi.
  */
 
-export const REPLAY_VERSION = 4
+export const REPLAY_VERSION = 5
 
 /** Cabeçalho fixo, em bytes. */
 export const HEADER_SIZE = 60
@@ -85,6 +85,17 @@ export const PLACEMENT_SIZE = 4
  */
 export const MAX_PLACEMENTS = 45
 
+/** Cada declaração: bola u8, caçapa u8. */
+export const CALL_SIZE = 2
+
+/**
+ * Teto de declarações de caçapa.
+ *
+ * Com a regra padrão (`eight-only`), só a bola 8 exige declarar — uma ou duas
+ * por partida. Oito é folgado e barato.
+ */
+export const MAX_CALLS = 8
+
 /**
  * Teto de tacadas por replay.
  *
@@ -115,7 +126,11 @@ export const MAX_DECISIONS = 24
  * todo teste curto e aparece em produção com dinheiro na mesa.
  */
 export const MAX_REPLAY_BYTES =
-  HEADER_SIZE + MAX_SHOTS * SHOT_SIZE + MAX_DECISIONS + MAX_PLACEMENTS * PLACEMENT_SIZE
+  HEADER_SIZE +
+  MAX_SHOTS * SHOT_SIZE +
+  MAX_DECISIONS +
+  MAX_PLACEMENTS * PLACEMENT_SIZE +
+  MAX_CALLS * CALL_SIZE
 
 const MODE_CODES: Record<GameModeId, number> = { eightball: 0, sinuca: 1 }
 const MODE_BY_CODE: Record<number, GameModeId> = { 0: 'eightball', 1: 'sinuca' }
@@ -160,6 +175,14 @@ export type Replay = {
    * precisa receber, não o original.
    */
   placements: { x: number; y: number }[]
+  /**
+   * Bola e caçapa declaradas, na ordem em que as regras as exigiram.
+   *
+   * A WPA manda declarar antes de jogar na bola 8; sem isso, encaçapá-la é
+   * falta — e falta na 8 é derrota. É entrada do jogador como qualquer outra,
+   * e por isso vai gravada.
+   */
+  calls: { ball: number; pocket: number }[]
 }
 
 export class ReplayFormatError extends Error {
@@ -250,11 +273,19 @@ export function encodeReplay(replay: Replay): Uint8Array {
     )
   }
 
+  const calls = replay.calls ?? []
+  if (calls.length > MAX_CALLS) {
+    throw new ReplayFormatError(
+      `Replay com ${calls.length} declarações passa do limite de ${MAX_CALLS}.`,
+    )
+  }
+
   const bytes = new Uint8Array(
     HEADER_SIZE +
       replay.shots.length * SHOT_SIZE +
       decisions.length +
-      placements.length * PLACEMENT_SIZE,
+      placements.length * PLACEMENT_SIZE +
+      calls.length * CALL_SIZE,
   )
   const view = new DataView(bytes.buffer)
 
@@ -269,7 +300,7 @@ export function encodeReplay(replay: Replay): Uint8Array {
 
   view.setUint16(56, replay.shots.length, true)
   bytes[58] = placements.length
-  bytes[59] = 0 // reservado
+  bytes[59] = calls.length
 
   let offset = HEADER_SIZE
   for (const shot of replay.shots) {
@@ -290,6 +321,12 @@ export function encodeReplay(replay: Replay): Uint8Array {
     view.setUint16(offset, q.x, true)
     view.setUint16(offset + 2, q.y, true)
     offset += PLACEMENT_SIZE
+  }
+
+  for (const c of calls) {
+    bytes[offset] = c.ball & 0xff
+    bytes[offset + 1] = c.pocket & 0xff
+    offset += CALL_SIZE
   }
 
   return bytes
@@ -316,15 +353,22 @@ export function decodeReplay(bytes: Uint8Array): Replay {
   const engineVersion = bytes[2]!
   const nDecisoes = bytes[3]!
   const nPosicoes = bytes[58]!
+  const nDeclaracoes = bytes[59]!
   const seed = bytes.slice(4, 36)
   const cues: [CueParams, CueParams] = [lerTaco(view, 36), lerTaco(view, 46)]
 
   const total = view.getUint16(56, true)
-  const esperado = HEADER_SIZE + total * SHOT_SIZE + nDecisoes + nPosicoes * PLACEMENT_SIZE
+  const esperado =
+    HEADER_SIZE +
+    total * SHOT_SIZE +
+    nDecisoes +
+    nPosicoes * PLACEMENT_SIZE +
+    nDeclaracoes * CALL_SIZE
   if (bytes.length !== esperado) {
     throw new ReplayFormatError(
-      `Replay diz ter ${total} tacadas, ${nDecisoes} decisões e ${nPosicoes} ` +
-        `posicionamentos (${esperado} bytes) mas tem ${bytes.length}.`,
+      `Replay diz ter ${total} tacadas, ${nDecisoes} decisões, ${nPosicoes} ` +
+        `posicionamentos e ${nDeclaracoes} declarações (${esperado} bytes) ` +
+        `mas tem ${bytes.length}.`,
     )
   }
 
@@ -351,7 +395,14 @@ export function decodeReplay(bytes: Uint8Array): Replay {
     )
   }
 
-  return { version, mode, engineVersion, seed, cues, shots, decisions, placements }
+  const inicioDeclaracoes = inicioPosicoes + nPosicoes * PLACEMENT_SIZE
+  const calls: { ball: number; pocket: number }[] = []
+  for (let i = 0; i < nDeclaracoes; i++) {
+    const o = inicioDeclaracoes + i * CALL_SIZE
+    calls.push({ ball: bytes[o]!, pocket: bytes[o + 1]! })
+  }
+
+  return { version, mode, engineVersion, seed, cues, shots, decisions, placements, calls }
 }
 
 function escreverTaco(view: DataView, offset: number, cue: CueParams): void {
@@ -373,5 +424,14 @@ function lerTaco(view: DataView, offset: number): CueParams {
 }
 
 /** Tamanho que o replay terá, sem serializar. */
-export const replaySize = (shotCount: number, decisionCount = 0, placementCount = 0): number =>
-  HEADER_SIZE + shotCount * SHOT_SIZE + decisionCount + placementCount * PLACEMENT_SIZE
+export const replaySize = (
+  shotCount: number,
+  decisionCount = 0,
+  placementCount = 0,
+  callCount = 0,
+): number =>
+  HEADER_SIZE +
+  shotCount * SHOT_SIZE +
+  decisionCount +
+  placementCount * PLACEMENT_SIZE +
+  callCount * CALL_SIZE

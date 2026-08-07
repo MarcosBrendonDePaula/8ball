@@ -248,17 +248,26 @@ function detectFoul(
   return null
 }
 
+/**
+ * Esta tacada exige declarar bola e caçapa?
+ *
+ * Exposto porque a interface precisa saber ANTES da tacada — é o que decide se
+ * ela pede a caçapa ao jogador. O julgamento usa a mesma condição logo abaixo.
+ */
+export function callRequired(state: MatchState, rules: RuleSet = DEFAULT_RULES): boolean {
+  return (
+    rules.callShot === 'always' ||
+    (rules.callShot === 'eight-only' && canShootEight(state, state.turn))
+  )
+}
+
 /** A declaração exigida foi feita e cumprida? */
 function checkCall(
   state: MatchState,
   outcome: ShotOutcome,
   rules: RuleSet,
 ): FoulReason | null {
-  const precisaDeclarar =
-    rules.callShot === 'always' ||
-    (rules.callShot === 'eight-only' && canShootEight(state, state.turn))
-
-  if (!precisaDeclarar) return null
+  if (!callRequired(state, rules)) return null
   if (!outcome.called) return 'no-call'
 
   // Declarou mas encaçapou outra coisa: a tacada não conta, mas só é FALTA se

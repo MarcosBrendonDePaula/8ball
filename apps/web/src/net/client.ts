@@ -139,8 +139,11 @@ export class GameClient {
     this.#nonce = null
   }
 
-  shoot(shot: { angle: number; power: number; spinX: number; spinY: number }): void {
-    this.#send({ t: 'match.shoot', ...shot })
+  shoot(
+    shot: { angle: number; power: number; spinX: number; spinY: number },
+    call?: { ball: number; pocket: number } | null,
+  ): void {
+    this.#send({ t: 'match.shoot', ...shot, ...(call ? { call } : {}) })
   }
 
   place(x: number, y: number): void {
@@ -512,6 +515,7 @@ export type MatchMessage = Extract<
       | 'match.history'
       | 'match.shot'
       | 'match.ballInHand'
+      | 'match.callRequired'
       | 'match.placed'
       | 'match.decision'
       | 'match.decided'
@@ -528,6 +532,7 @@ const MATCH_MESSAGES = new Set<ServerMessage['t']>([
   'match.history',
   'match.shot',
   'match.ballInHand',
+  'match.callRequired',
   'match.placed',
   'match.decision',
   'match.decided',

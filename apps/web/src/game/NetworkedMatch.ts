@@ -38,6 +38,8 @@ export type NetMatchState = {
   decision: { chooser: 0 | 1; kind: string; options: string[] } | null
   /** Bola na mão aberta, se houver. */
   ballInHand: { who: 0 | 1; region: 'anywhere' | 'kitchen' } | null
+  /** A tacada da vez exige declarar a caçapa. */
+  callRequired: boolean
   opponentOffline: boolean
   resultado: { winner: 0 | 1 | null; reason: string } | null
   /** Divergência entre a nossa mesa e a do servidor. */
@@ -54,6 +56,7 @@ const INICIAL: NetMatchState = {
   deadline: null,
   decision: null,
   ballInHand: null,
+  callRequired: false,
   opponentOffline: false,
   resultado: null,
   desync: null,
@@ -111,7 +114,7 @@ export function connectMatch(
         controller = criarMesa(state.mode, seed, state.you ?? 0)
         controller.net = {
           you: state.you ?? 0,
-          submit: (shot) => client.shoot(shot),
+          submit: (shot, call) => client.shoot(shot, call),
           submitPlacement: (p) => client.place(p.x, p.y),
         }
         patch({
@@ -142,11 +145,16 @@ export function connectMatch(
           turn: msg.turn,
           deadline: msg.deadline,
           decision: null,
+          callRequired: false,
           desync: controller?.desync ?? null,
           mensagem: msg.status,
         })
         break
       }
+
+      case 'match.callRequired':
+        patch({ callRequired: true })
+        break
 
       case 'match.ballInHand':
         patch({

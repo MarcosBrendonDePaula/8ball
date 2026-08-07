@@ -429,3 +429,71 @@ describe('limite gravável', () => {
     }
   })
 })
+
+describe('caçapa declarada', () => {
+  /**
+   * O bug que isto fecha era grave e silencioso: com a regra padrão
+   * (`eight-only`), encaçapar a bola 8 sem declarar dá falta `no-call` — e
+   * falta na 8 é DERROTA. Sem uma forma de declarar, ninguém conseguia vencer
+   * legitimamente; só se o adversário afundasse a 8 por engano.
+   */
+  function naBolaOito(): { m: Match; agora: number } | null {
+    const m = partidaIniciada()
+    let agora = T0
+
+    for (let i = 0; i < 60 && m.phase === 'playing'; i++) {
+      agora += 1_000
+      if (m.callRequired) return { m, agora }
+      if (m.ballInHand) m.place(m.players[m.summary!.turn].address, 0.5, 0.5, agora)
+      if (m.ballInHand === null) m.shoot(enderecoDaVez(m), tacada((i * 41) % 360, 0.85), agora)
+    }
+    return null
+  }
+
+  test('sem declarar, a tacada é recusada antes de acontecer', () => {
+    const achou = naBolaOito()
+    if (!achou) return
+
+    expect(() => achou.m.shoot(enderecoDaVez(achou.m), tacada(0, 0.8), achou.agora)).toThrow(
+      /Declare a caçapa/,
+    )
+  })
+
+  test('declarando, a tacada é aceita', () => {
+    const achou = naBolaOito()
+    if (!achou) return
+
+    const antes = achou.m.recorder!.shotCount
+    achou.m.shoot(enderecoDaVez(achou.m), tacada(0, 0.8), achou.agora, { ball: 8, pocket: 2 })
+
+    expect(achou.m.recorder!.shotCount).toBe(antes + 1)
+    expect(achou.m.recorder!.callCount).toBeGreaterThan(0)
+  })
+
+  test('a partida com declaração continua verificável', () => {
+    const achou = naBolaOito()
+    if (!achou) return
+
+    achou.m.shoot(enderecoDaVez(achou.m), tacada(30, 0.8), achou.agora, { ball: 8, pocket: 1 })
+
+    const conferido = verifyReplay(decodeReplay(achou.m.recorder!.toBytes()))
+    expect(conferido.stoppedBecause).toBeNull()
+    expect(conferido.shotsApplied).toBe(achou.m.recorder!.shotCount)
+  })
+
+  test('o relógio declara por quem não declarou, para as listas não desalinharem', () => {
+    const achou = naBolaOito()
+    if (!achou) return
+
+    const antes = achou.m.recorder!.callCount
+    achou.m.tick(achou.agora + SHOT_CLOCK_MS)
+
+    // A tacada nula não encaçapa nada, então a declaração não muda o
+    // julgamento — ela existe para o verificador consumir uma por tacada
+    // exigida, como o jogo grava.
+    expect(achou.m.recorder!.callCount).toBe(antes + 1)
+
+    const conferido = verifyReplay(decodeReplay(achou.m.recorder!.toBytes()))
+    expect(conferido.stoppedBecause).toBeNull()
+  })
+})

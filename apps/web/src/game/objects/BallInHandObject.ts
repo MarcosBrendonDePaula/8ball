@@ -27,7 +27,14 @@ export class BallInHandObject extends Entity {
   }
 
   get ativo(): boolean {
-    return this.match.ballInHand !== null && this.match.phase === 'aiming'
+    if (this.match.ballInHand === null || this.match.phase !== 'aiming') return false
+
+    // Numa mesa em rede, a bola na mão é de UM jogador. Sem esta checagem os
+    // dois viam o círculo tracejado, e o adversário podia arrastar uma bola
+    // que não é dele — o servidor recusaria, mas a tela mentia.
+    if (this.match.net && this.match.summary.turn !== this.match.net.you) return false
+
+    return true
   }
 
   override update({ input, viewport }: FrameContext): void {

@@ -170,6 +170,17 @@ matches.subscribe((event) => {
       break
     }
 
+    case 'callRequired': {
+      const m = matches.get(event.matchId)
+      if (!m) return
+      toMatch(event.matchId, {
+        t: 'match.callRequired',
+        who: m.summary?.turn ?? 0,
+        ball: 8,
+      })
+      break
+    }
+
     case 'ballInHand': {
       const m = matches.get(event.matchId)
       const regiao = m?.ballInHand
@@ -248,6 +259,11 @@ matches.subscribe((event) => {
         reason: event.result.reason,
         replay: Buffer.from(event.result.replay).toString('hex'),
       })
+
+      // A sala sai do lobby: ela virou uma partida, a partida acabou, e
+      // deixá-la ali travaria os dois jogadores — um jogador, uma sala.
+      lobby.closeFinished(event.matchId)
+      pushRoomSelf([event.players[0], event.players[1]])
 
       // Paga o vencedor e grava o replay. Sem isto, o dinheiro ficaria parado
       // até o prazo e o VARREDOR o devolveria como empate — quem ganhou
@@ -456,12 +472,11 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
       }
 
       case 'match.shoot': {
-        matches.shoot(address, {
-          angle: msg.angle,
-          power: msg.power,
-          spinX: msg.spinX,
-          spinY: msg.spinY,
-        })
+        matches.shoot(
+          address,
+          { angle: msg.angle, power: msg.power, spinX: msg.spinX, spinY: msg.spinY },
+          msg.call,
+        )
         break
       }
 

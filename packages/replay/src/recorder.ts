@@ -6,6 +6,7 @@ import {
 } from '@zinc-pool/engine-physics'
 import type { GameModeId } from '@zinc-pool/engine-rules'
 import {
+  MAX_CALLS,
   MAX_DECISIONS,
   MAX_PLACEMENTS,
   MAX_SHOTS,
@@ -90,6 +91,7 @@ export class ShotRecorder {
   #shots: EncodedShot[] = []
   #decisions: number[] = []
   #placements: { x: number; y: number }[] = []
+  #calls: { ball: number; pocket: number }[] = []
 
   /**
    * @param seed  os 32 bytes do commit-reveal que definiram a quebra
@@ -121,9 +123,18 @@ export class ShotRecorder {
     return this.#placements.length
   }
 
+  get callCount(): number {
+    return this.#calls.length
+  }
+
   /** Tamanho atual em bytes, para a interface avisar antes de estourar. */
   get byteSize(): number {
-    return replaySize(this.#shots.length, this.#decisions.length, this.#placements.length)
+    return replaySize(
+      this.#shots.length,
+      this.#decisions.length,
+      this.#placements.length,
+      this.#calls.length,
+    )
   }
 
   /** Quantas tacadas ainda cabem. */
@@ -175,6 +186,17 @@ export class ShotRecorder {
     return quantizada
   }
 
+  /**
+   * Registra a bola e a caçapa declaradas antes da tacada.
+   *
+   * Consumidas por dedução, como as decisões: as regras dizem QUANDO declarar
+   * é obrigatório, então basta gravar o QUE foi declarado.
+   */
+  recordCall(ball: number, pocket: number): void {
+    if (this.#calls.length >= MAX_CALLS) throw new ReplayFullError(MAX_CALLS)
+    this.#calls.push({ ball: ball & 0xff, pocket: pocket & 0xff })
+  }
+
   /** Atalho: quantiza, registra e devolve o que a física deve usar. */
   take(
     angle: number,
@@ -199,6 +221,7 @@ export class ShotRecorder {
       shots: this.#shots.map((s) => ({ ...s })),
       decisions: [...this.#decisions],
       placements: this.#placements.map((p) => ({ ...p })),
+      calls: this.#calls.map((c) => ({ ...c })),
     }
   }
 
