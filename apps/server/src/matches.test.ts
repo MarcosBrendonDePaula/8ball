@@ -247,3 +247,42 @@ describe('reconectar reencontra a partida', () => {
     expect(ambiente().matches.resume('Carol')).toBeNull()
   })
 })
+
+describe('uma partida quebrada não derruba as outras', () => {
+  test('a falha é isolada e a mesa sai do ar sem vencedor', () => {
+    // O `tick` roda por temporizador: sem isolamento, uma exceção sairia por um
+    // callback que ninguém observa e TODAS as mesas congelariam, cada uma com
+    // dinheiro no contrato.
+    const env = jogando()
+    const m = env.matches.matchOf(ALICE)!.match
+
+    const falhas: unknown[] = []
+    env.matches.onError = (_id, err) => falhas.push(err)
+
+    // Simula o que o gravador cheio faria: lançar de dentro do avanço.
+    m.tick = () => {
+      throw new Error('gravador cheio')
+    }
+
+    env.avancar(1000)
+
+    expect(falhas).toHaveLength(1)
+    expect(env.matches.active).toBe(0)
+
+    const fim = env.eventos.find((e) => e.t === 'end') as { result: { winner: number | null } }
+    // Sem vencedor: as entradas voltam pelo prazo on-chain. Declarar alguém a
+    // partir de uma partida que falhou seria pior que devolver.
+    expect(fim.result.winner).toBeNull()
+  })
+
+  test('as outras partidas seguem andando', () => {
+    const env = jogando()
+    const m = env.matches.matchOf(ALICE)!.match
+    m.tick = () => {
+      throw new Error('gravador cheio')
+    }
+
+    // Não lança para fora: quem chama `tick` é um temporizador.
+    expect(() => env.avancar(1000)).not.toThrow()
+  })
+})

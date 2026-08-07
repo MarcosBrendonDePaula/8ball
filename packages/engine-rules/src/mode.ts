@@ -90,6 +90,19 @@ export type GameMode<TState = unknown, TOutcome = unknown, TRuling = unknown> = 
    * não conhece o estado concreto de nenhuma modalidade.
    */
   callRequiredOf(state: TState): boolean
+  /**
+   * A bola que esta tacada é OBRIGADA a acertar primeiro, se a modalidade
+   * impuser uma.
+   *
+   * `null` quando não há uma só — no 8-Ball o alvo é um grupo inteiro, e
+   * apontar uma bola dele seria mentir para o jogador. A sinuca impõe a menor
+   * da mesa, e sem isto a interface não tem como dizer qual é: as sete
+   * coloridas parecem igualmente jogáveis.
+   *
+   * Fica no contrato comum porque quem mostra é a interface, que não conhece o
+   * estado concreto de nenhuma modalidade.
+   */
+  targetBallOf(state: TState): number | null
   /** Aplica a escolha do jogador e libera a próxima tacada. */
   resolve(state: TState, optionIndex: number): DecisionOutcome<TState>
   /** Desistência ou W.O. por tempo. */
@@ -194,6 +207,9 @@ const eightballMode: GameMode<
   },
   ballInHandOf: (state) => (state.ballInHand.active ? state.ballInHand.region : null),
   callRequiredOf: (state) => eightball.callRequired(state),
+  // O alvo do 8-Ball é o grupo inteiro, não uma bola. Apontar uma delas faria
+  // o jogador acreditar numa obrigação que a regra não impõe.
+  targetBallOf: () => null,
   resolve: (state, optionIndex) => {
     const escolha = BREAK_CHOICES[optionIndex]
     if (!escolha) {
@@ -253,6 +269,10 @@ const sinucaMode: GameMode<
   // A sinuca brasileira não tem bola declarada: a bola da vez é imposta pela
   // ordem crescente, então não há o que escolher.
   callRequiredOf: () => false,
+  // Mesma conta de `alvoDaTacada` nas regras: a bola livre declarada substitui
+  // a da vez. Duplicá-la aqui deixaria a mesa destacando uma bola e o
+  // julgamento cobrando outra.
+  targetBallOf: (state) => state.nominated ?? sinucaTypes.ballOnTurn(state),
   forfeit: (state, quem) => sinuca.forfeitSinuca(state, quem),
   winnerOf: (state) => state.winner,
   summarize: (state) => {

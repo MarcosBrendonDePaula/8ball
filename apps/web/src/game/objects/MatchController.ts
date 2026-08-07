@@ -179,6 +179,14 @@ export class MatchController extends Entity {
    */
   calledPocket: number | null = null
 
+  /**
+   * Bola que a tacada é obrigada a acertar primeiro, quando a modalidade impõe
+   * uma. `null` no 8-Ball, em que o alvo é o grupo inteiro.
+   */
+  get targetBall(): number | null {
+    return this.mode.targetBallOf(this.rules as never)
+  }
+
   get canShoot(): boolean {
     if (this.phase !== 'aiming' || this.pending !== null) return false
     if (this.ballInHand !== null) return false
@@ -249,6 +257,15 @@ export class MatchController extends Entity {
     if (!this.canShoot) return
     if (this.recorder.remaining <= 0) {
       this.lastMessage = 'Limite de tacadas do replay atingido.'
+      return
+    }
+
+    // O teto de declarações é bem menor que o de tacadas e, no 8-Ball, dois
+    // jogadores errando a bola 8 chegam nele. Sem esta guarda o gravador
+    // lançava DENTRO do laço do jogo e a página inteira parava — recusar a
+    // tacada com uma mensagem deixa a mesa jogável até alguém encerrar.
+    if (this.callRequired && this.recorder.remainingCalls <= 0) {
+      this.lastMessage = 'Limite de declarações do replay atingido.'
       return
     }
 
@@ -415,6 +432,13 @@ export class MatchController extends Entity {
     // próprio replay, enquanto o servidor recusava — e as duas mesas
     // divergiam de forma permanente, sem nada acusar até a tacada seguinte.
     if (this.net && this.summary.turn !== this.net.you) return
+
+    // Mesma razão da guarda em `shoot`: o gravador lança ao estourar, e um erro
+    // aqui viria do laço de desenho, a cada quadro, com a página travada.
+    if (this.recorder.remainingPlacements <= 0) {
+      this.lastMessage = 'Limite de posicionamentos do replay atingido.'
+      return
+    }
 
     const onde = this.recorder.placeCueBall(x, y)
     this.net?.submitPlacement(onde)

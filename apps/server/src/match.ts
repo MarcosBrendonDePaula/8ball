@@ -24,7 +24,6 @@ import {
   type PendingDecision,
 } from '@zinc-pool/engine-rules'
 import {
-  MAX_PLACEMENTS,
   ShotRecorder,
   decodeAngle,
   decodePower,
@@ -478,7 +477,12 @@ export class Match {
   get replayFull(): boolean {
     const r = this.recorder
     if (!r) return false
-    return r.remaining < 2 || r.placementCount >= MAX_PLACEMENTS - 1
+
+    // As três listas contam. A de declarações foi a que faltava aqui, e é a
+    // mais fácil de estourar sem perceber: no 8-Ball toda tacada na bola 8
+    // exige uma, e o gravador LANÇA ao encher — de dentro do `tick`, que roda
+    // por temporizador.
+    return r.remaining < 2 || r.remainingPlacements < 1 || r.remainingCalls < 1
   }
 
   tick(now: number): { changed: boolean; timedOut: 0 | 1 | null } {

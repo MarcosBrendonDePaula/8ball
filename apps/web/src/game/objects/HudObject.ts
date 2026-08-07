@@ -78,10 +78,21 @@ export class HudObject extends Entity {
     ctx.textBaseline = 'middle'
     ctx.font = '400 11px ui-sans-serif, system-ui, sans-serif'
     ctx.fillStyle = '#4a6a56'
-    ctx.fillText(
-      'Arraste a partir da branca e solte para tacar',
-      vp.offsetX + vp.tableWidthPx / 2,
-      y,
-    )
+    ctx.fillText(this.#textoDaDica(), vp.offsetX + vp.tableWidthPx / 2, y)
+  }
+
+  /**
+   * A dica precisa acompanhar o que o jogo está esperando.
+   *
+   * Mandar arrastar a branca enquanto a regra exige uma declaração é pior que
+   * não dizer nada: o jogador tenta, não acontece nada, e conclui que travou.
+   */
+  #textoDaDica(): string {
+    if (this.match.pending) return 'Escolha uma das opções na mesa'
+    if (this.match.ballInHand) return 'Solte a branca onde quiser jogar'
+    if (this.match.callRequired && this.match.calledPocket === null) {
+      return 'Declare a caçapa antes de tacar'
+    }
+    return 'Arraste a partir da branca e solte para tacar'
   }
 }

@@ -117,6 +117,12 @@ function toMatch(matchId: string, message: ServerMessage): void {
   )
 }
 
+// Uma partida que falha no relógio é anulada e sai do ar; o log é o único
+// lugar onde isso aparece, então precisa ser ruidoso.
+matches.onError = (matchId, err) => {
+  console.error(`[match] ${matchId.slice(0, 8)}… falhou e foi anulada:`, err)
+}
+
 matches.subscribe((event) => {
   switch (event.t) {
     case 'begin': {

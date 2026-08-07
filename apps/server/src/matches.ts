@@ -269,15 +269,46 @@ export class Matches {
   tick(): void {
     const agora = this.now()
     for (const [matchId, match] of [...this.#byId]) {
-      const antes = match.phase
-      const r = match.tick(agora)
-      if (!r.changed) continue
+      // Uma partida que falhe não pode parar o relógio das outras. Isto roda
+      // por temporizador: sem o isolamento, uma exceção sairia por um callback
+      // que ninguém observa e TODAS as mesas congelariam, cada uma com
+      // dinheiro no contrato.
+      try {
+        const antes = match.phase
+        const r = match.tick(agora)
+        if (!r.changed) continue
 
-      if (match.phase !== 'finished' && antes !== match.phase) {
-        this.#emit({ t: 'decision', matchId })
+        if (match.phase !== 'finished' && antes !== match.phase) {
+          this.#emit({ t: 'decision', matchId })
+        }
+        this.#afterAdvance(matchId, match)
+      } catch (err) {
+        // Encerrar sem vencedor é o desfecho seguro: as entradas voltam pelo
+        // prazo on-chain, em vez de a mesa ficar batendo o mesmo erro por
+        // segundo até alguém perceber.
+        this.onError?.(matchId, err)
+        this.#abortar(matchId, match)
       }
-      this.#afterAdvance(matchId, match)
     }
+  }
+
+  /** Avisado quando uma partida falha no relógio. */
+  onError: ((matchId: string, err: unknown) => void) | null = null
+
+  /** Tira do ar uma partida que não consegue mais avançar. */
+  #abortar(matchId: string, match: Match): void {
+    const players: [string, string] = [match.players[0].address, match.players[1].address]
+
+    this.#byId.delete(matchId)
+    this.#commits.delete(matchId)
+    for (const p of players) this.#byPlayer.delete(p)
+
+    this.#emit({
+      t: 'end',
+      matchId,
+      players,
+      result: { winner: null, reason: 'tempo', replay: new Uint8Array(0) },
+    })
   }
 
   /** Fecha tudo. Chamado quando o servidor para. */

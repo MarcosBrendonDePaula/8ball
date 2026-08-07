@@ -2,10 +2,13 @@ import { GameLoop } from './core/loop'
 import { Scene } from './core/scene'
 import { BallInHandObject } from './objects/BallInHandObject'
 import { BallsObject } from './objects/BallsObject'
+import { CallPocketObject } from './objects/CallPocketObject'
 import { CueObject } from './objects/CueObject'
+import { DecisionObject } from './objects/DecisionObject'
 import { HudObject } from './objects/HudObject'
 import { MatchController } from './objects/MatchController'
 import { TableObject } from './objects/TableObject'
+import { TargetBallObject } from './objects/TargetBallObject'
 import { fixed as F, table as T } from '@zinc-pool/engine-physics'
 import type { GameModeId } from '@zinc-pool/engine-rules'
 
@@ -39,6 +42,12 @@ export function createPoolScene(
   scene.add(new BallsObject(match))
   scene.add(new CueObject(match))
   scene.add(new BallInHandObject(match))
+  scene.add(new TargetBallObject(match))
+  // As duas interfaces de escolha vêm DEPOIS do taco na ordem de update: quem
+  // roda primeiro consome o clique, e um toque que declara a caçapa não pode
+  // virar tacada no mesmo quadro.
+  scene.add(new CallPocketObject(match))
+  scene.add(new DecisionObject(match))
   scene.add(new HudObject(match))
 
   // O passo fixo é o MESMO da engine. Divergir aqui faria o cliente simular

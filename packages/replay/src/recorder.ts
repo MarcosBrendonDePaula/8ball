@@ -143,6 +143,23 @@ export class ShotRecorder {
   }
 
   /**
+   * Quantas bolas na mão e declarações ainda cabem.
+   *
+   * Existem pelo mesmo motivo de `remaining`: quem grava precisa poder PERGUNTAR
+   * antes, porque estourar é erro e um erro no meio do laço do jogo derruba a
+   * página. O teto de declarações é o mais fácil de alcançar sem perceber — no
+   * 8-Ball toda tacada na bola 8 exige uma, e dois jogadores errando a 8 gastam
+   * as oito em quatro rodadas.
+   */
+  get remainingPlacements(): number {
+    return MAX_PLACEMENTS - this.#placements.length
+  }
+
+  get remainingCalls(): number {
+    return MAX_CALLS - this.#calls.length
+  }
+
+  /**
    * Registra uma tacada já quantizada.
    *
    * Recusa em vez de descartar em silêncio: uma partida truncada produziria um

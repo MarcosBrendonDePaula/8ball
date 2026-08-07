@@ -62,6 +62,17 @@ describe('contrato comum', () => {
     }
   })
 
+  test('toda modalidade responde se impõe uma bola alvo', () => {
+    // A interface pergunta isto para destacar a bola na mesa. Uma modalidade
+    // que não respondesse obrigaria a tela a ramificar por id de jogo.
+    for (const id of GAME_MODES) {
+      const modo = getGameMode(id)
+      const alvo = modo.targetBallOf(modo.create(0))
+
+      expect(alvo === null || typeof alvo === 'number').toBe(true)
+    }
+  })
+
   test('toda modalidade aceita desistência', () => {
     for (const id of GAME_MODES) {
       const modo = getGameMode(id)
@@ -85,6 +96,12 @@ describe('8-Ball pelo registro', () => {
   test('16 bolas na mesa no início, sem contar a branca', () => {
     // 15 numeradas: as sete lisas, a 8 e as sete listradas.
     expect(modo.summarize(modo.create(0)).onTable).toHaveLength(15)
+  })
+
+  test('não impõe bola alvo: o alvo é o grupo inteiro', () => {
+    // Apontar uma bola do grupo faria a interface anunciar uma obrigação que a
+    // regra não impõe.
+    expect(modo.targetBallOf(modo.create(0))).toBeNull()
   })
 
   test('julga uma tacada pelo contrato comum', () => {
@@ -112,6 +129,11 @@ describe('sinuca pelo registro', () => {
 
     expect(resumo.status).toContain('vermelha')
     expect(resumo.score).toEqual([0, 0])
+  })
+
+  test('a bola alvo é a menor ainda na mesa', () => {
+    // A ordem crescente é a regra central do jogo, e é o que a mesa destaca.
+    expect(modo.targetBallOf(modo.create(0))).toBe(1)
   })
 
   test('7 bolas na mesa no início', () => {
