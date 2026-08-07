@@ -280,3 +280,62 @@ describe('a verificação é invariante à origem do replay', () => {
     expect(daChain.winner).toBe(emMemoria.winner)
   })
 })
+
+describe('replays antigos continuam auditáveis', () => {
+  /**
+   * Sem isto, "auditável para sempre" vale só até a próxima mudança de
+   * formato. Foram duas num dia, e elas órfãs todo o histórico já gravado na
+   * blockchain — que é permanente e não pode ser regravado.
+   *
+   * Reproduzir um replay antigo exige as SEMÂNTICAS da época, não só o layout:
+   * o v4 não tem caçapa declarada porque o jogo daquele momento não declarava,
+   * e as regras julgavam com `called = null`.
+   */
+  const shots = Array.from({ length: 12 }, (_, i) => tacada((i * 53) % 360, 0.9))
+
+  /** Reescreve um replay atual no layout de uma versão anterior. */
+  function comoVersao(bytes: Uint8Array, versao: 3 | 4): Uint8Array {
+    const copia = Uint8Array.from(bytes)
+    copia[0] = versao
+    if (versao === 4) {
+      copia[59] = 0 // no v4 o byte de declarações era reservado
+      return copia.slice(0, copia.length - contarDeclaracoes(bytes) * 2)
+    }
+    return copia
+  }
+
+  const contarDeclaracoes = (bytes: Uint8Array): number => bytes[59] ?? 0
+
+  test('o v4 é lido e verificado', () => {
+    const atual = encodeReplay(replay(shots, [], []))
+    const antigo = decodeReplay(comoVersao(atual, 4))
+
+    expect(antigo.version).toBe(4)
+    expect(() => verifyReplay(antigo)).not.toThrow()
+  })
+
+  test('o v4 não exige caçapa declarada, porque não a gravava', () => {
+    // Exigir declaração num replay que nunca a teve pararia a verificação
+    // justamente na tacada que decide a partida.
+    const atual = encodeReplay(replay(shots, POSICOES, []))
+    const antigo = decodeReplay(comoVersao(atual, 4))
+
+    // `stoppedBecause` é null quando nada interrompeu, então a checagem
+    // precisa aceitar os dois casos.
+    expect(verifyReplay(antigo).stoppedBecause ?? '').not.toContain('caçapa')
+  })
+
+  test('versão desconhecida continua sendo recusada, não adivinhada', () => {
+    const bytes = encodeReplay(replay([tacada(0, 1)]))
+    bytes[0] = 99
+
+    expect(() => decodeReplay(bytes)).toThrow(/não suportada/)
+  })
+
+  test('a mensagem diz quais versões este código lê', () => {
+    const bytes = encodeReplay(replay([tacada(0, 1)]))
+    bytes[0] = 99
+
+    expect(() => decodeReplay(bytes)).toThrow(/3, 4, 5/)
+  })
+})

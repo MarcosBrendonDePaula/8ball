@@ -53,8 +53,31 @@ import type { GameModeId } from '@zinc-pool/engine-rules'
 
 export const REPLAY_VERSION = 5
 
+/**
+ * Versões que este código ainda sabe LER.
+ *
+ * Gravar acontece sempre na versão corrente; ler precisa alcançar o passado,
+ * senão cada mudança de formato órfã todo o histórico já gravado — e a
+ * promessa de auditoria "para sempre" vale só até o próximo bump.
+ *
+ * Ler não basta: reproduzir um replay antigo exige as SEMÂNTICAS da época. Um
+ * replay v4 não tem caçapa declarada porque o jogo daquele momento não
+ * declarava, e as regras julgavam com `called = null` — produzindo faltas
+ * `no-call` legítimas. Verificá-lo exigindo declaração daria outro resultado.
+ */
+export const READABLE_VERSIONS = [3, 4, 5] as const
+
 /** Cabeçalho fixo, em bytes. */
 export const HEADER_SIZE = 60
+
+/**
+ * Cabeçalho de cada versão legível.
+ *
+ * O v3 tinha 58 bytes; o v4 cresceu para 60 ao ganhar a contagem de
+ * posicionamentos. O v4 e o v5 são idênticos no layout — no v4 o byte 59 era
+ * reservado e valia zero, que é exatamente "nenhuma declaração".
+ */
+const HEADER_BY_VERSION: Record<number, number> = { 3: 58, 4: 60, 5: 60 }
 
 /** Cada tacada: ângulo u16, força u8, efeito i8 × 2. */
 export const SHOT_SIZE = 5
@@ -333,18 +356,23 @@ export function encodeReplay(replay: Replay): Uint8Array {
 }
 
 export function decodeReplay(bytes: Uint8Array): Replay {
-  if (bytes.length < HEADER_SIZE) {
+  // O menor cabeçalho entre as versões legíveis; o exato sai da versão.
+  if (bytes.length < 58) {
     throw new ReplayFormatError(`Replay truncado: ${bytes.length} bytes.`)
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 
   const version = bytes[0]!
-  if (version !== REPLAY_VERSION) {
-    // Recusa em vez de tentar interpretar: campos de outra versão podem
-    // significar outra coisa, e adivinhar produziria um replay errado que
-    // parece certo.
-    throw new ReplayFormatError(`Versão de replay não suportada: ${version}.`)
+  const header = HEADER_BY_VERSION[version]
+  if (header === undefined) {
+    // Recusa em vez de adivinhar: campos de uma versão desconhecida podem
+    // significar outra coisa, e chutar produziria um replay errado que parece
+    // certo. As conhecidas estão em READABLE_VERSIONS.
+    throw new ReplayFormatError(
+      `Versão de replay não suportada: ${version}. ` +
+        `Este código lê as versões ${READABLE_VERSIONS.join(', ')}.`,
+    )
   }
 
   const mode = MODE_BY_CODE[bytes[1]!]
@@ -352,18 +380,15 @@ export function decodeReplay(bytes: Uint8Array): Replay {
 
   const engineVersion = bytes[2]!
   const nDecisoes = bytes[3]!
-  const nPosicoes = bytes[58]!
-  const nDeclaracoes = bytes[59]!
+  // O v3 não tinha nenhum dos dois campos; os bytes 58 e 59 já eram tacada.
+  const nPosicoes = header >= 60 ? bytes[58]! : 0
+  const nDeclaracoes = header >= 60 ? bytes[59]! : 0
   const seed = bytes.slice(4, 36)
   const cues: [CueParams, CueParams] = [lerTaco(view, 36), lerTaco(view, 46)]
 
   const total = view.getUint16(56, true)
   const esperado =
-    HEADER_SIZE +
-    total * SHOT_SIZE +
-    nDecisoes +
-    nPosicoes * PLACEMENT_SIZE +
-    nDeclaracoes * CALL_SIZE
+    header + total * SHOT_SIZE + nDecisoes + nPosicoes * PLACEMENT_SIZE + nDeclaracoes * CALL_SIZE
   if (bytes.length !== esperado) {
     throw new ReplayFormatError(
       `Replay diz ter ${total} tacadas, ${nDecisoes} decisões, ${nPosicoes} ` +
@@ -374,7 +399,7 @@ export function decodeReplay(bytes: Uint8Array): Replay {
 
   const shots: EncodedShot[] = []
   for (let i = 0; i < total; i++) {
-    const offset = HEADER_SIZE + i * SHOT_SIZE
+    const offset = header + i * SHOT_SIZE
     shots.push({
       angle: view.getUint16(offset, true),
       power: view.getUint8(offset + 2),
@@ -383,7 +408,7 @@ export function decodeReplay(bytes: Uint8Array): Replay {
     })
   }
 
-  const inicioDecisoes = HEADER_SIZE + total * SHOT_SIZE
+  const inicioDecisoes = header + total * SHOT_SIZE
   const decisions = Array.from(bytes.slice(inicioDecisoes, inicioDecisoes + nDecisoes))
 
   const inicioPosicoes = inicioDecisoes + nDecisoes

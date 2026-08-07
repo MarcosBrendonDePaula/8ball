@@ -27,6 +27,8 @@ export type HistoryEntry = {
   /** O replay reproduzido confirma o vencedor gravado? */
   verificado: 'confere' | 'divergiu' | 'erro'
   motivo: string | null
+  /** Versão do FORMATO e da FÍSICA com que a partida foi gravada. */
+  versao: { formato: number; fisica: number } | null
 }
 
 export async function loadHistory(address: string): Promise<HistoryEntry[]> {
@@ -34,12 +36,20 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
 
   return registros.map((r) => {
     const matchId = Buffer.from(r.matchId).toString('hex')
+
+    // Os dois primeiros campos do replay são a versão do formato e a da
+    // física. Lidos direto dos bytes, sem decodificar: valem mesmo quando o
+    // resto do replay é de uma versão que este código não sabe ler.
+    const versao =
+      r.replay.length >= 3 ? { formato: r.replay[0]!, fisica: r.replay[2]! } : null
+
     const base = {
       matchId,
       pda: r.pda.toBase58(),
       won: r.won,
       pot: r.pot.toString(),
       settledAt: r.settledAt,
+      versao,
     }
 
     // Reproduzir custa alguns milissegundos por partida e é a única coisa aqui
@@ -88,8 +98,11 @@ function linha(e: HistoryEntry, symbol: string): string {
     <span class="hist-resultado">${e.won ? 'Vitória' : 'Derrota'}</span>
     <span class="hist-pote">${formatAmount(e.pot)} ${symbol}</span>
     <span class="hist-quando">${quando}</span>
-    <span class="hist-prova hist-${e.verificado}" title="${e.motivo ?? 'O replay gravado reproduz este resultado.'}">
+    <span class="hist-prova hist-${e.verificado}" title="${esc(e.motivo ?? 'O replay gravado reproduz este resultado.')}">
       ${SELO[e.verificado]}
+    </span>
+    <span class="hist-versao" title="Formato do replay e versão da física com que a partida foi jogada. Uma partida só reproduz igual na física que a gerou.">
+      ${e.versao ? `fmt v${e.versao.formato} · fis v${e.versao.fisica}` : '—'}
     </span>
     <a class="hist-link" href="${explorerAddressUrl(e.pda)}" target="_blank" rel="noopener">
       ver na chain ↗
@@ -115,3 +128,7 @@ function explicar(err: unknown): string {
   }
   return texto.slice(0, 120)
 }
+
+/** Escapa texto que vai para um atributo HTML. */
+const esc = (t: string): string =>
+  t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')

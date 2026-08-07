@@ -921,7 +921,8 @@ input:focus {
 
 .coluna .hist-quando,
 .coluna .hist-prova,
-.coluna .hist-link {
+.coluna .hist-link,
+.coluna .hist-versao {
   grid-column: 1 / -1;
 }
 
@@ -938,4 +939,16 @@ input:focus {
 .sala-unica {
   max-width: 520px;
   margin: 0 auto;
+}
+
+/* A versão da física é o que decide se uma partida antiga ainda reproduz igual.
+   Discreta, mas visível: quem não sabe o que é ignora; quem sabe, entende
+   na hora por que um replay antigo não confere. */
+.hist-versao {
+  font: 500 10px/1 var(--mono);
+  opacity: 0.4;
+  letter-spacing: 0.02em;
+}
+.hist-linha:hover .hist-versao {
+  opacity: 0.75;
 }

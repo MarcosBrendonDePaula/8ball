@@ -112,6 +112,22 @@ export function verifyReplay(replay: Replay): VerificationResult {
   let aplicadas = 0
   let parou: string | null = null
 
+  /*
+   * Reproduzir um replay antigo exige as SEMÂNTICAS da época, não só o layout.
+   *
+   * O v3 não gravava a posição da bola na mão: naquele momento o jogo punha a
+   * branca no ponto canônico, e é assim que ele precisa ser reproduzido.
+   *
+   * O v4 não gravava a caçapa declarada porque o jogo não declarava — e as
+   * regras julgavam com `called = null`, produzindo faltas `no-call` legítimas.
+   * Exigir declaração agora daria outro vencedor.
+   *
+   * Sem isso, "auditável para sempre" valeria só até a próxima mudança de
+   * formato.
+   */
+  const gravaPosicoes = replay.version >= 4
+  const gravaDeclaracoes = replay.version >= 5
+
   const decisoes = [...(replay.decisions ?? [])]
 
   // As posições passam pela grade do formato ANTES de serem usadas.
@@ -148,7 +164,7 @@ export function verifyReplay(replay: Replay): VerificationResult {
 
     // Bola na mão: a posição escolhida pelo jogador é entrada, e sem ela a
     // partida seguiria de um ponto que ninguém escolheu.
-    if (mode.ballInHandOf(rules as never)) {
+    if (gravaPosicoes && mode.ballInHandOf(rules as never)) {
       const onde = posicoes.shift()
       if (!onde) {
         parou = 'faltou no replay a posição da bola na mão'
@@ -164,7 +180,7 @@ export function verifyReplay(replay: Replay): VerificationResult {
     // Declaração de caçapa, quando a regra exige. Lida ANTES da tacada porque
     // é isso que ela é: uma promessa feita antes de jogar.
     let called: { ball: number; pocket: number } | null = null
-    if (mode.callRequiredOf(rules as never)) {
+    if (gravaDeclaracoes && mode.callRequiredOf(rules as never)) {
       called = declaracoes.shift() ?? null
       if (!called) {
         parou = 'faltou no replay a caçapa declarada'
@@ -188,7 +204,9 @@ export function verifyReplay(replay: Replay): VerificationResult {
     const { state, ruling } = mode.play(rules as never, outcome as never)
     rules = state
     settleTable(table, ruling, {
-      ballInHand: mode.ballInHandOf(rules as never) !== null,
+      // Antes do v4 a branca ia direto para o ponto canônico: quem não grava a
+      // escolha não pode esperar por ela.
+      ballInHand: gravaPosicoes && mode.ballInHandOf(rules as never) !== null,
     })
 
     aplicadas++
