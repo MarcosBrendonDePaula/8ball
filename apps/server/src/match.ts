@@ -17,6 +17,7 @@ import {
   outcomeFromEvents,
   placeCueBall,
   rerackTable,
+  respotBalls,
   settleTable,
   type BallInHandRegion,
   type GameModeId,
@@ -447,9 +448,10 @@ export class Match {
 
     this.recorder!.recordDecision(optionIndex)
 
-    const { state, rerack } = this.modeApi.resolve(this.rules as never, optionIndex)
+    const { state, rerack, respot } = this.modeApi.resolve(this.rules as never, optionIndex)
     this.rules = state
     if (rerack) rerackTable(this.table!, this.recorder!.seed)
+    respotBalls(this.table!, respot)
 
     this.#enterTurn(now)
 

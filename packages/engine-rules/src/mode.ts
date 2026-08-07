@@ -125,8 +125,19 @@ export type PendingDecision = {
   chooser: 0 | 1
   /** Identificador estável da situação, para a interface explicar. */
   kind: string
-  /** Rótulos das opções, na ordem em que são numeradas. */
-  options: readonly string[]
+  /**
+   * As opções VÁLIDAS para esta situação, cada uma com o índice canônico.
+   *
+   * O índice é o que fica gravado no replay, e a lista canônica não pode ser
+   * reordenada nem filtrada — por isso ele viaja junto do rótulo em vez de ser
+   * a posição no array.
+   *
+   * Antes disto a interface oferecia as quatro opções nas duas situações, e
+   * três delas mentiam: escolher "Aceitar a mesa" na 8 da quebra rearmava o
+   * rack, porque `resolveChoice` manda tudo que não é `respot-eight` para o
+   * `default`.
+   */
+  options: readonly { index: number; label: string }[]
 }
 
 /**
@@ -139,6 +150,16 @@ export type BallInHandRegion = 'anywhere' | 'kitchen'
 
 export type DecisionOutcome<TState> = {
   state: TState
+  /**
+   * Bolas que a escolha manda de volta ao ponto de pé.
+   *
+   * Pelo mesmo motivo de `rerack`: o estado de REGRAS e o da MESA são
+   * separados, e as regras não movem bola nenhuma. Sem isto, escolher
+   * "recolocar a 8" tirava a 8 da lista de encaçapadas mas a deixava fora da
+   * mesa física — e quem limpasse o grupo nunca mais conseguia tocá-la. Toda
+   * tacada virava falta por falta de contato, para sempre.
+   */
+  respot: number[]
   /**
    * A escolha exige montar o triângulo de novo.
    *
@@ -191,6 +212,18 @@ const BREAK_CHOICES_LABELS: readonly string[] = [
   'Recolocar a 8',
 ]
 
+/**
+ * Quais índices canônicos valem em cada situação.
+ *
+ * A WPA dá DUAS opções quando a 8 cai na quebra (4.3e) e TRÊS quando a quebra
+ * é irregular (4.3d). Oferecer as quatro nas duas fazia o jogador escolher algo
+ * que o motor de regras interpretava como outra coisa.
+ */
+const OPCOES_POR_SITUACAO: Record<string, readonly number[]> = {
+  'eight-on-break': [3, 1], // recolocar a 8, ou quebrar de novo
+  'illegal-break': [0, 1, 2], // aceitar, quebrar de novo, devolver a quebra
+}
+
 const eightballMode: GameMode<
   eightballTypes.MatchState,
   eightballTypes.ShotOutcome,
@@ -203,7 +236,13 @@ const eightballMode: GameMode<
   pendingOf: (state) => {
     const p = state.pending
     if (!p) return null
-    return { chooser: p.chooser, kind: p.kind, options: BREAK_CHOICES_LABELS }
+
+    const validas = OPCOES_POR_SITUACAO[p.kind] ?? BREAK_CHOICES.map((_, i) => i)
+    return {
+      chooser: p.chooser,
+      kind: p.kind,
+      options: validas.map((index) => ({ index, label: BREAK_CHOICES_LABELS[index]! })),
+    }
   },
   ballInHandOf: (state) => (state.ballInHand.active ? state.ballInHand.region : null),
   callRequiredOf: (state) => eightball.callRequired(state),
@@ -216,9 +255,18 @@ const eightballMode: GameMode<
       throw new Error(`Opção ${optionIndex} não existe para esta decisão.`)
     }
     const novo = eightball.resolveChoice(state, escolha)
-    // Reracking se as regras rearmaram o rack: mesa cheia de novo e por
-    // quebrar. `accept` e `respot-eight` seguem na mesa como está.
-    return { state: novo, rerack: !novo.broken && novo.pocketed.length === 0 }
+
+    // Rerack quando as regras rearmaram: mesa cheia de novo e por quebrar.
+    const rerack = !novo.broken && novo.pocketed.length === 0
+
+    // A 8 volta ao ponto de pé quando ela saiu da lista de encaçapadas sem
+    // haver rerack — que é exatamente o caso de `respot-eight`.
+    const voltou =
+      !rerack &&
+      state.pocketed.includes(eightballTypes.EIGHT_BALL) &&
+      !novo.pocketed.includes(eightballTypes.EIGHT_BALL)
+
+    return { state: novo, rerack, respot: voltou ? [eightballTypes.EIGHT_BALL] : [] }
   },
   forfeit: (state, quem) => eightball.forfeit(state, quem),
   winnerOf: (state) => state.winner,
@@ -287,7 +335,11 @@ const sinucaMode: GameMode<
             : `Bola da vez: ${sinucaTypes.BALL_NAMES[alvo] ?? alvo}`,
       score: state.score,
       onTable: state.onTable,
-      finished: state.winner !== null,
+      // Pelo FIM registrado, não pelo vencedor: um empate encerra a partida
+      // sem vencedor, e olhar só o `winner` deixava a mesa vazia esperando uma
+      // tacada impossível — a falta por falta de contato era inevitável e os 7
+      // pontos de penalidade decidiam por quem estava na vez.
+      finished: state.ending !== null,
       winner: state.winner,
     }
   },

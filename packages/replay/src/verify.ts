@@ -16,6 +16,7 @@ import {
   outcomeFromEvents,
   placeCueBall,
   rerackTable,
+  respotBalls,
   settleTable,
 } from '@zinc-pool/engine-rules'
 import {
@@ -160,6 +161,7 @@ export function verifyReplay(replay: Replay): VerificationResult {
       const resolvida = mode.resolve(rules as never, escolha)
       rules = resolvida.state
       if (resolvida.rerack) rerackTable(table, replay.seed)
+      respotBalls(table, resolvida.respot)
     }
 
     // Bola na mão: a posição escolhida pelo jogador é entrada, e sem ela a

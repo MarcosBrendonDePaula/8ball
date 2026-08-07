@@ -59,12 +59,15 @@ export class DecisionObject extends Entity {
     const x = viewport.offsetX + (viewport.tableWidthPx - LARGURA) / 2
     const topo = viewport.offsetY + (viewport.tableHeightPx - alturaTotal) / 2 + 14
 
-    return opcoes.map((_, i) => ({
+    // O botão carrega o ÍNDICE CANÔNICO da opção, não a posição na tela: é ele
+    // que vai gravado no replay, e a lista mostra só as opções válidas para
+    // esta situação.
+    return opcoes.map((opcao, i) => ({
       x,
       y: topo + i * (ALTURA_BOTAO + ESPACO),
       w: LARGURA,
       h: ALTURA_BOTAO,
-      indice: i,
+      indice: opcao.index,
     }))
   }
 
@@ -105,7 +108,7 @@ export class DecisionObject extends Entity {
 
       ctx.fillStyle = '#e8f3ec'
       ctx.fillText(
-        pendencia.options[botao.indice] ?? '',
+        pendencia.options.find((o) => o.index === botao.indice)?.label ?? '',
         botao.x + botao.w / 2,
         botao.y + botao.h / 2,
       )

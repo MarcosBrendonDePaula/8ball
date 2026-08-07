@@ -35,7 +35,7 @@ export type NetMatchState = {
   /** Quando o prazo da vez expira, em ms. */
   deadline: number | null
   /** Escolha aberta, se houver. */
-  decision: { chooser: 0 | 1; kind: string; options: string[] } | null
+  decision: { chooser: 0 | 1; kind: string; options: { index: number; label: string }[] } | null
   /** Bola na mão aberta, se houver. */
   ballInHand: { who: 0 | 1; region: 'anywhere' | 'kitchen' } | null
   /** A tacada da vez exige declarar a caçapa. */

@@ -172,3 +172,95 @@ describe('as duas modalidades são independentes', () => {
     expect(GAME_MODE_INFO.eightball.ballCount).not.toBe(GAME_MODE_INFO.sinuca.ballCount)
   })
 })
+
+describe('achados da auditoria de regras', () => {
+  test('"recolocar a 8" pede a bola de volta à mesa física', () => {
+    // Antes, a 8 saía da lista de encaçapadas nas REGRAS mas ninguém a
+    // devolvia à mesa. Quem limpasse o grupo nunca mais conseguia tocá-la:
+    // toda tacada virava falta por falta de contato, para sempre.
+    const modo = getGameMode('eightball')
+
+    const inicio = modo.create(0)
+    const { state, ruling } = modo.play(inicio as never, {
+      firstContact: 1,
+      pocketed: [8],
+      offTable: [],
+      railAfterContact: true,
+      ballsToRail: 4,
+      eightBallPocket: 2,
+      called: null,
+      nominated: null,
+    } as never)
+
+    expect((ruling as { pending: unknown }).pending).not.toBeNull()
+
+    // 3 é o índice canônico de `respot-eight`.
+    const r = modo.resolve(state as never, 3)
+    expect(r.respot).toContain(8)
+    expect(r.rerack).toBe(false)
+  })
+
+  test('cada situação oferece só as opções que a regra permite', () => {
+    // A interface oferecia as quatro nas duas situações, e três mentiam:
+    // "Aceitar a mesa" na 8 da quebra rearmava o rack, porque `resolveChoice`
+    // manda tudo que não é `respot-eight` para o `default`.
+    const modo = getGameMode('eightball')
+    const inicio = modo.create(0)
+
+    const { state } = modo.play(inicio as never, {
+      firstContact: 1,
+      pocketed: [8],
+      offTable: [],
+      railAfterContact: true,
+      ballsToRail: 4,
+      eightBallPocket: 2,
+      called: null,
+      nominated: null,
+    } as never)
+
+    const p = modo.pendingOf(state as never)
+    expect(p).not.toBeNull()
+    // A WPA 4.3(e) dá duas: recolocar a 8, ou quebrar de novo.
+    expect(p!.options).toHaveLength(2)
+    expect(p!.options.map((o) => o.index).sort()).toEqual([1, 3])
+  })
+
+  test('o índice canônico viaja com a opção, não é a posição na lista', () => {
+    // A posição mudaria conforme a situação; o índice é o que fica gravado no
+    // replay e não pode depender de quantas opções a tela mostrou.
+    const modo = getGameMode('eightball')
+    const inicio = modo.create(0)
+    const { state } = modo.play(inicio as never, {
+      firstContact: 1,
+      pocketed: [8],
+      offTable: [],
+      railAfterContact: true,
+      ballsToRail: 4,
+      eightBallPocket: 2,
+      called: null,
+      nominated: null,
+    } as never)
+
+    const p = modo.pendingOf(state as never)!
+    expect(p.options[0]!.index).not.toBe(0)
+  })
+
+  test('empate na sinuca encerra a partida em vez de deixá-la sem saída', () => {
+    // Com a mesa vazia e placar igual, `winner` é null. Como o resumo olhava
+    // só o vencedor, a partida seguia "em andamento": sem bola para jogar, a
+    // falta por falta de contato era inevitável e os 7 pontos de penalidade
+    // decidiam por quem estava na vez.
+    const sinuca = getGameMode('sinuca')
+    const estado = {
+      ...(sinuca.create(0) as Record<string, unknown>),
+      onTable: [],
+      score: [28, 28],
+      ending: { kind: 'all-balls-potted' },
+      winner: null,
+    }
+
+    const resumo = sinuca.summarize(estado as never)
+    expect(resumo.finished).toBe(true)
+    expect(resumo.winner).toBeNull()
+  })
+})

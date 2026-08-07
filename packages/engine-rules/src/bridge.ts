@@ -256,3 +256,23 @@ function separarDasOutras(table: TableState, branca: TableState['balls'][number]
     if (!mexeu) return
   }
 }
+
+/**
+ * Devolve bolas ao ponto de pé, fora do julgamento de uma tacada.
+ *
+ * Usado pelas escolhas que recolocam bola sem haver tacada — hoje só o
+ * "recolocar a 8" do 8-Ball. É a mesma operação que `settleTable` faz com o
+ * `respot` do julgamento, e mora aqui pelo mesmo motivo: jogo e verificador
+ * precisam chamar exatamente a mesma função.
+ */
+export function respotBalls(table: TableState, ids: readonly number[]): void {
+  for (const id of ids) {
+    const bola = table.balls.find((b) => b.id === id)
+    if (!bola?.pocketed) continue
+
+    bola.pocketed = false
+    V.copy(bola.position, T.FOOT_SPOT)
+    V.set(bola.velocity, 0, 0)
+    V.set(bola.spin, 0, 0)
+  }
+}

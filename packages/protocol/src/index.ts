@@ -316,7 +316,13 @@ export const ServerMessage = z.discriminatedUnion('t', [
     t: z.literal('match.decision'),
     chooser: z.union([z.literal(0), z.literal(1)]),
     kind: z.string(),
-    options: z.array(z.string()),
+    /**
+     * As opções VÁLIDAS, cada uma com o índice canônico.
+     *
+     * O índice é o que vai gravado no replay; a posição na lista não serve,
+     * porque a lista mostra só o que a regra permite naquela situação.
+     */
+    options: z.array(z.object({ index: z.number().int(), label: z.string() })),
     deadline: z.number(),
   }),
 

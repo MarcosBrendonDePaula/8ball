@@ -25,6 +25,7 @@ import {
   outcomeFromEvents,
   placeCueBall,
   rerackTable,
+  respotBalls,
   settleTable,
   type GameModeId,
   type MatchSummary,
@@ -212,14 +213,18 @@ export class MatchController extends Entity {
 
     this.recorder.recordDecision(optionIndex)
 
-    const { state, rerack } = this.mode.resolve(this.rules as never, optionIndex)
+    const { state, rerack, respot } = this.mode.resolve(this.rules as never, optionIndex)
     this.rules = state
 
-    // Rearmar o triângulo é obrigação de quem controla a mesa: as regras zeram
-    // as bolas encaçapadas, mas não movem bola nenhuma.
+    // Rearmar o triângulo e recolocar bolas são obrigação de quem controla a
+    // mesa: as regras zeram as bolas encaçapadas, mas não movem bola nenhuma.
     if (rerack) rerackTable(this.table, this.recorder.seed)
+    respotBalls(this.table, respot)
 
-    this.lastMessage = pendencia.options[optionIndex] ?? null
+    // A opção é procurada pelo ÍNDICE CANÔNICO, não pela posição na lista: a
+    // lista mostra só as válidas para a situação, mas o índice gravado no
+    // replay continua sendo o da lista completa.
+    this.lastMessage = pendencia.options.find((o) => o.index === optionIndex)?.label ?? null
     this.phase = this.summary.finished ? 'finished' : 'aiming'
     this.#capturePrevious()
   }
