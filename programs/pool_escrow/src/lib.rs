@@ -63,6 +63,23 @@ pub const MAX_SPEC_URI_LEN: usize = 128;
 /// limite exige publicar um binário novo, o que é público e auditável.
 pub const MIN_WINNER_BPS: u16 = 8_500;
 
+/**
+ * Prazo de uma partida COMPROMETIDA, decidido pelo contrato.
+ *
+ * O `timeout_seconds` do `create_match` governa só a sala esperando oponente —
+ * é escolha do criador e só afeta o dinheiro dele. Depois que o segundo
+ * jogador deposita, o relógio é REANCORADO aqui.
+ *
+ * A separação existe porque a versão anterior deixava o prazo da partida nas
+ * mãos do criador, e isso era um free-roll: bastava assinar `create_match` com
+ * 60 segundos em vez dos 3600 que o servidor sugere. A partida vencia antes da
+ * segunda tacada, e quem estava perdendo acionava `claim_timeout` e recebia a
+ * entrada de volta. Toda derrota virava empate, com o risco todo do outro lado.
+ *
+ * Foi reproduzido em devnet antes desta correção.
+ */
+pub const COMMITTED_TIMEOUT_SECONDS: i64 = 3_600;
+
 /// Endereço incinerador da Solana. Lamports enviados para cá são destruídos
 /// pelo runtime no fim do slot — some do supply, verificável no explorer.
 ///
@@ -165,6 +182,19 @@ pub mod pool_escrow {
         let game = &mut ctx.accounts.game;
         game.opponent = ctx.accounts.opponent.key();
         game.state = MatchState::Committed as u8;
+
+        // O relógio da PARTIDA começa agora, com duração que o contrato define.
+        // Antes disto o prazo continuava sendo o que o criador escolheu para a
+        // sala, e ele podia escolher 60 segundos.
+        game.deadline = now
+            .checked_add(COMMITTED_TIMEOUT_SECONDS)
+            .ok_or(EscrowError::MathOverflow)?;
+
+        emit!(MatchCommitted {
+            match_id: game.match_id,
+            deadline: game.deadline,
+        });
+
         Ok(())
     }
 
@@ -335,13 +365,28 @@ pub mod pool_escrow {
             config.min_stake > 0 && config.max_stake >= config.min_stake,
             EscrowError::InvalidStakeRange
         );
+
+        // Trocar o referee é a mudança mais perigosa que a autoridade faz:
+        // quem assina as liquidações passa a ser outro. Era a única sem
+        // rastro, enquanto os saques e a divisão já emitiam evento.
+        emit!(ConfigChanged {
+            referee: config.referee,
+            min_stake: config.min_stake,
+            max_stake: config.max_stake,
+        });
         Ok(())
     }
 
     /// Passa a autoridade para outra chave. Caminho só de ida — confira duas
     /// vezes antes, porque não há como desfazer sem a chave nova.
     pub fn set_authority(ctx: Context<AdminOnly>, authority: Pubkey) -> Result<()> {
+        let previous = ctx.accounts.config.authority;
         ctx.accounts.config.authority = authority;
+
+        emit!(AuthorityChanged {
+            previous,
+            current: authority,
+        });
         Ok(())
     }
 
@@ -1004,6 +1049,34 @@ pub struct HouseWithdrawn {
 pub struct TreasuryBurned {
     pub amount: u64,
     pub total_burned: u64,
+}
+
+/// A partida ficou com os dois depósitos e o relógio dela começou.
+#[event]
+pub struct MatchCommitted {
+    pub match_id: [u8; 16],
+    pub deadline: i64,
+}
+
+/**
+ * A configuração de operação mudou.
+ *
+ * A troca de referee é a mudança mais perigosa que a autoridade pode fazer —
+ * quem assina as liquidações passa a ser outro. Era a única que não deixava
+ * rastro em evento, enquanto `set_splits` e os saques deixavam.
+ */
+#[event]
+pub struct ConfigChanged {
+    pub referee: Pubkey,
+    pub min_stake: u64,
+    pub max_stake: u64,
+}
+
+/// A autoridade do programa mudou de mãos.
+#[event]
+pub struct AuthorityChanged {
+    pub previous: Pubkey,
+    pub current: Pubkey,
 }
 
 #[event]
