@@ -68,6 +68,8 @@ export type MatchPhase =
 
 export type MatchEndReason = 'regras' | 'desistência' | 'tempo' | 'replay cheio'
 
+/** Quem está na frente agora, para decidir uma partida que não cabe mais. */
+
 export type MatchError =
   | 'not_your_turn'
   | 'wrong_phase'
@@ -534,11 +536,17 @@ export class Match {
   tick(now: number): TickResult {
     if (this.phase === 'finished') return { changed: false, timedOut: null }
 
-    // Sem espaço para gravar, não há como PROVAR o resultado. Declarar um
-    // vencedor que o replay não sustenta quebraria a única coisa que o sistema
-    // promete de verdade, então a partida é anulada e as entradas voltam.
+    // Sem espaço para gravar, a partida acaba aqui. O vencedor é QUEM ESTÁ NA
+    // FRENTE, e o replay sustenta essa decisão: ele contém tudo que foi jogado
+    // até este ponto, e o placar sai das regras aplicadas a esses bytes.
+    //
+    // Anular seria pior, e não por elegância: com reembolso garantido, quem
+    // estava perdendo simplesmente parava de jogar. Cada prazo estourado gasta
+    // uma tacada nula, e em 37 minutos o teto chegava — o mesmo free-roll do
+    // prazo do escrow, por outra porta.
     if (this.replayFull) {
-      this.#finish(null, 'replay cheio')
+      const naFrente = this.modeApi.standingWinner(this.rules as never)
+      this.#finish(naFrente, 'replay cheio')
       return { changed: true, timedOut: null }
     }
 

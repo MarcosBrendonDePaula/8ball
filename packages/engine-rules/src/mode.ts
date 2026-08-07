@@ -109,6 +109,21 @@ export type GameMode<TState = unknown, TOutcome = unknown, TRuling = unknown> = 
   forfeit(state: TState, quemDesiste: 0 | 1): TState
   /** Quem venceu, se a partida acabou. */
   winnerOf(state: TState): 0 | 1 | null
+  /**
+   * Quem está na frente AGORA, se a partida tivesse de acabar aqui.
+   *
+   * `null` quando ninguém está — e aí não há como decidir sem inventar.
+   *
+   * Existe por causa de um free-roll: o replay tem teto de tacadas, e ao
+   * estourar a partida era ANULADA com reembolso. Quem estava perdendo então
+   * simplesmente parava de jogar — cada prazo estourado consome uma tacada
+   * nula, e em 37 minutos o teto chegava e o dinheiro voltava. O mesmo ataque
+   * do prazo do escrow, por outra porta.
+   *
+   * Decidir pelo estado remove o incentivo: parar de jogar não pontua, e quem
+   * não pontua perde.
+   */
+  standingWinner(state: TState): 0 | 1 | null
   /** Resumo para a interface, sem ela conhecer o formato interno. */
   summarize(state: TState): MatchSummary
 }
@@ -270,6 +285,17 @@ const eightballMode: GameMode<
   },
   forfeit: (state, quem) => eightball.forfeit(state, quem),
   winnerOf: (state) => state.winner,
+  // Menos bolas do próprio grupo na mesa. Com a mesa aberta ninguém tem grupo,
+  // e aí não há do que medir.
+  standingWinner: (state) => {
+    if (state.groups.open) return null
+    const faltam: [number, number] = [
+      eightballTypes.remainingFor(state, 0).length,
+      eightballTypes.remainingFor(state, 1).length,
+    ]
+    if (faltam[0] === faltam[1]) return null
+    return faltam[0] < faltam[1] ? 0 : 1
+  },
   summarize: (state) => ({
     turn: state.turn,
     status: descreverEightball(state),
@@ -323,6 +349,11 @@ const sinucaMode: GameMode<
   targetBallOf: (state) => state.nominated ?? sinucaTypes.ballOnTurn(state),
   forfeit: (state, quem) => sinuca.forfeitSinuca(state, quem),
   winnerOf: (state) => state.winner,
+  // A sinuca já é decidida por pontos: quem está na frente está na frente.
+  standingWinner: (state) => {
+    if (state.score[0] === state.score[1]) return null
+    return state.score[0] > state.score[1] ? 0 : 1
+  },
   summarize: (state) => {
     const alvo = sinucaTypes.ballOnTurn(state)
     return {

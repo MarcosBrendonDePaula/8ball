@@ -264,3 +264,53 @@ describe('achados da auditoria de regras', () => {
     expect(resumo.winner).toBeNull()
   })
 })
+
+describe('quem está na frente, quando a partida não cabe mais', () => {
+  /**
+   * O replay tem teto de tacadas. Ao estourar, a partida era ANULADA com
+   * reembolso — e aí quem estava perdendo simplesmente parava de jogar: cada
+   * prazo estourado gasta uma tacada nula, e em 37 minutos o teto chegava. Era
+   * o mesmo free-roll do prazo do escrow, por outra porta.
+   *
+   * Decidir pelo estado remove o incentivo: parar de jogar não pontua.
+   */
+  test('8-Ball: quem tem menos bolas do próprio grupo está na frente', () => {
+    const modo = getGameMode('eightball')
+    const base = modo.create(0) as Record<string, unknown>
+
+    const estado = {
+      ...base,
+      broken: true,
+      groups: { open: false, first: 'solids', second: 'stripes' },
+      pocketed: [1, 2, 3, 4],
+    }
+
+    expect(modo.standingWinner(estado as never)).toBe(0)
+  })
+
+  test('8-Ball: mesa aberta não tem como medir', () => {
+    // Sem grupos atribuídos ninguém tem "o próprio grupo"; inventar um seria
+    // decidir a partida por um critério que a regra não define.
+    const modo = getGameMode('eightball')
+    const estado = { ...(modo.create(0) as Record<string, unknown>), broken: true }
+
+    expect(modo.standingWinner(estado as never)).toBeNull()
+  })
+
+  test('sinuca: decide por pontos, que é como ela já é decidida', () => {
+    const modo = getGameMode('sinuca')
+    const base = modo.create(0) as Record<string, unknown>
+
+    expect(modo.standingWinner({ ...base, score: [21, 14] } as never)).toBe(0)
+    expect(modo.standingWinner({ ...base, score: [14, 21] } as never)).toBe(1)
+    expect(modo.standingWinner({ ...base, score: [17, 17] } as never)).toBeNull()
+  })
+
+  test('parar de jogar não vira empate quando o outro pontuou', () => {
+    // O ponto do conserto: quem ficou parado não pode sair no zero a zero.
+    const modo = getGameMode('sinuca')
+    const base = modo.create(0) as Record<string, unknown>
+
+    expect(modo.standingWinner({ ...base, score: [7, 0] } as never)).toBe(0)
+  })
+})

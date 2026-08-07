@@ -368,9 +368,18 @@ Contra um adversário ausente, cada rodada gasta duas tacadas — a nula do
 relógio e a de quem joga — mais uma posição de bola na mão. O espaço do replay
 acaba antes de a partida acabar.
 
-Quando acaba, a partida é **anulada** e as entradas voltam. Declarar um
-vencedor que o replay não sustenta quebraria a única coisa que o sistema
-promete de verdade.
+Quando acaba, a partida é decidida por **quem está na frente**: menos bolas do
+próprio grupo no 8-Ball, mais pontos na sinuca. O replay sustenta essa decisão
+— ele contém tudo que foi jogado até ali, e o placar sai das regras aplicadas a
+esses bytes.
+
+Anular com reembolso parecia mais seguro e era pior: quem estava perdendo
+simplesmente **parava de jogar**. Cada prazo estourado consome uma tacada nula,
+e em 37 minutos o teto chegava e o dinheiro voltava — o mesmo free-roll do
+prazo do escrow, por outra porta.
+
+Só quando ninguém está na frente — placar igual, ou mesa aberta no 8-Ball — a
+partida é anulada. Aí o empate é real.
 
 Estourar o prazo de tacada **não inventa uma transição nova**: é registrado
 como uma tacada de força zero. A branca não sai do lugar, as regras julgam
@@ -585,7 +594,7 @@ Todas as chaves e `.env` estão no `.gitignore`.
 | M4 multiplayer | jogável de ponta a ponta; liquidação automática |
 | M5 escrow on-chain | pronto e provado em devnet |
 
-**502 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
+**506 testes**, typecheck limpo — agora incluindo `apps/web` e `scripts/`, que
 estavam fora do pipeline. Foi essa lacuna que deixou um campo obrigatório do
 replay passar despercebido até quebrar contra a devnet.
 
