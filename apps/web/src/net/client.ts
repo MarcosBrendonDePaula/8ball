@@ -11,6 +11,7 @@ import {
   ServerMessage,
   buildLoginMessage,
   type Room,
+  type GameMode,
 } from '@zinc-pool/protocol'
 import { PublicKey, Transaction } from '@solana/web3.js'
 import bs58 from 'bs58'
@@ -351,13 +352,13 @@ export class GameClient {
    * A confirmação só é pedida depois que a transação está confirmada na chain,
    * senão o servidor leria uma conta que ainda não existe.
    */
-  async createRoom(stake: string, label: string): Promise<void> {
+  async createRoom(stake: string, label: string, mode: GameMode): Promise<void> {
     const publicKey = this.wallet.publicKey
     if (!publicKey) throw new Error('Conecte a carteira primeiro.')
 
     this.#patch({ pending: 'creating', error: null })
     try {
-      const required = await this.#requestDeposit({ t: 'lobby.reserve', stake, label })
+      const required = await this.#requestDeposit({ t: 'lobby.reserve', stake, label, mode })
 
       await this.#signAndSend(
         createMatchIx({

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { Chain } from '@/chain'
 import { MATCH_TIMEOUT_SECONDS, ROOM_TTL_MS } from '@/config'
-import type { ErrorCode, Room } from '@zinc-pool/protocol'
+import type { ErrorCode, GameMode, Room } from '@zinc-pool/protocol'
 import { PublicKey } from '@solana/web3.js'
 
 export class LobbyError extends Error {
@@ -22,6 +22,7 @@ type Reservation = {
   address: string
   stake: bigint
   label: string
+  mode: GameMode
   action: 'create' | 'join'
   createdAt: number
 }
@@ -87,6 +88,7 @@ export class Lobby {
     address: string,
     stake: bigint,
     label: string,
+    mode: GameMode,
     now: number,
   ): Promise<Reservation> {
     // Os limites vêm da chain, não de uma cópia local: aceitar aqui o que o
@@ -106,6 +108,7 @@ export class Lobby {
       address,
       stake,
       label: label.trim().slice(0, 24) || 'Mesa',
+      mode,
       action: 'create',
       createdAt: now,
     }
@@ -142,6 +145,7 @@ export class Lobby {
       id: reservation.matchIdHex,
       matchId: reservation.matchIdHex,
       label: reservation.label,
+      mode: reservation.mode,
       creator: address,
       opponent: null,
       stake: onChain.stake.toString(),
@@ -178,6 +182,9 @@ export class Lobby {
       address,
       stake: BigInt(room.stake),
       label: room.label,
+      // Quem entra joga a modalidade da SALA, não a que escolheria: é o que
+      // estava anunciado quando ele decidiu depositar.
+      mode: room.mode,
       action: 'join',
       createdAt: now,
     }

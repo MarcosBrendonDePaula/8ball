@@ -32,9 +32,20 @@ export const RoomState = z.enum([
 ])
 export type RoomState = z.infer<typeof RoomState>
 
+/**
+ * Modalidade da mesa.
+ *
+ * Fica na SALA, não na partida, porque quem entra precisa saber o que vai
+ * jogar antes de depositar. Descobrir a modalidade só depois de o dinheiro
+ * estar no contrato seria uma armadilha.
+ */
+export const GameMode = z.enum(['eightball', 'sinuca'])
+export type GameMode = z.infer<typeof GameMode>
+
 export const Room = z.object({
   id: z.string(),
   label: z.string(),
+  mode: GameMode,
   creator: z.string(),
   opponent: z.string().nullable(),
   /** Valor da entrada por jogador, em lamports. */
@@ -95,6 +106,7 @@ export const ClientMessage = z.discriminatedUnion('t', [
     t: z.literal('lobby.reserve'),
     stake: z.string().regex(/^\d+$/),
     label: z.string().max(24).optional(),
+    mode: GameMode.optional(),
   }),
   /** Passo 2: o depósito já foi assinado e enviado; confirme na chain. */
   z.object({ t: z.literal('lobby.confirmCreate'), matchId: z.string() }),

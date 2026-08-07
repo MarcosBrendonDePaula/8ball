@@ -25,7 +25,13 @@ import { MatchRuleError, REVEAL_TIMEOUT_MS, DISCONNECT_GRACE_MS } from '@/match'
 import { Matches } from '@/matches'
 import { startSweeper } from '@/sweeper'
 import { settleMatch } from '@/settlement'
-import { ClientMessage, DECIMALS, type ErrorCode, type ServerMessage } from '@zinc-pool/protocol'
+import {
+  ClientMessage,
+  DECIMALS,
+  type ErrorCode,
+  type Room,
+  type ServerMessage,
+} from '@zinc-pool/protocol'
 
 const chain = new SolanaChain()
 const lobby = new Lobby(chain)
@@ -218,14 +224,12 @@ matches.subscribe((event) => {
  * saber criar partidas. Sem isto, essas mesas ficariam com o dinheiro preso
  * até o prazo, sem nunca virar jogo.
  *
- * A modalidade ainda não é escolhida na sala; entra 8-Ball por padrão até o
- * seletor existir no lobby.
  */
-function abrirPartidaSePronta(room: { state: string; matchId: string; creator: string; opponent: string | null } | null): void {
+function abrirPartidaSePronta(room: Room | null): void {
   if (!room || room.state !== 'committed' || !room.opponent) return
   if (matches.has(room.matchId)) return
 
-  matches.open(room.matchId, 'eightball', [room.creator, room.opponent])
+  matches.open(room.matchId, room.mode, [room.creator, room.opponent])
 }
 
 /**
@@ -343,6 +347,7 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
           address,
           BigInt(msg.stake),
           msg.label ?? '',
+          msg.mode ?? 'eightball',
           Date.now(),
         )
         send(ws, {

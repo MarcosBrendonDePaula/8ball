@@ -39,7 +39,7 @@ function simulateDeposit(
 
 /** Caminho feliz completo de criação, usado como preparação em vários testes. */
 async function createRoom(chain: FakeChain, lobby: Lobby, creator = ALICE, stake = ONE) {
-  const reservation = await lobby.reserve(creator, stake, 'Mesa', NOW)
+  const reservation = await lobby.reserve(creator, stake, 'Mesa', 'eightball', NOW)
   simulateDeposit(chain, reservation.matchIdHex, creator, stake)
   return lobby.confirmCreate(creator, reservation.matchIdHex, NOW)
 }
@@ -48,7 +48,7 @@ describe('Lobby — criação', () => {
   test('a sala só existe depois do depósito confirmado na chain', async () => {
     const { chain, lobby } = setup()
 
-    const reservation = await lobby.reserve(ALICE, ONE, 'Mesa da Alice', NOW)
+    const reservation = await lobby.reserve(ALICE, ONE, 'Mesa da Alice', 'eightball', NOW)
     // Reservou, mas ninguém depositou ainda: nada é publicado.
     expect(lobby.openRooms()).toHaveLength(0)
     expect(lobby.roomOf(ALICE)).toBeNull()
@@ -63,7 +63,7 @@ describe('Lobby — criação', () => {
 
   test('sem depósito on-chain, confirmar falha e nada é publicado', async () => {
     const { lobby } = setup()
-    const reservation = await lobby.reserve(ALICE, ONE, '', NOW)
+    const reservation = await lobby.reserve(ALICE, ONE, '', 'eightball', NOW)
 
     await expect(lobby.confirmCreate(ALICE, reservation.matchIdHex, NOW)).rejects.toMatchObject({
       code: 'deposit_not_found',
@@ -73,7 +73,7 @@ describe('Lobby — criação', () => {
 
   test('depósito de valor diferente do reservado é recusado', async () => {
     const { chain, lobby } = setup()
-    const reservation = await lobby.reserve(ALICE, ONE, '', NOW)
+    const reservation = await lobby.reserve(ALICE, ONE, '', 'eightball', NOW)
     // Jogador depositou menos do que declarou.
     simulateDeposit(chain, reservation.matchIdHex, ALICE, ONE / 2n)
 
@@ -85,7 +85,7 @@ describe('Lobby — criação', () => {
 
   test('não dá para confirmar o depósito de outra pessoa como seu', async () => {
     const { chain, lobby } = setup()
-    const reservation = await lobby.reserve(ALICE, ONE, '', NOW)
+    const reservation = await lobby.reserve(ALICE, ONE, '', 'eightball', NOW)
     // A conta on-chain existe, mas quem depositou foi a Carla.
     simulateDeposit(chain, reservation.matchIdHex, CARLA, ONE)
 
@@ -106,8 +106,8 @@ describe('Lobby — criação', () => {
 
   test('valor fora dos limites nem chega a reservar', async () => {
     const { lobby } = setup()
-    await expect(lobby.reserve(ALICE, 1n, '', NOW)).rejects.toThrow(LobbyError)
-    await expect(lobby.reserve(ALICE, parseAmount('999')!, '', NOW)).rejects.toThrow(LobbyError)
+    await expect(lobby.reserve(ALICE, 1n, '', 'eightball', NOW)).rejects.toThrow(LobbyError)
+    await expect(lobby.reserve(ALICE, parseAmount('999')!, '', 'eightball', NOW)).rejects.toThrow(LobbyError)
   })
 
   test('os limites vêm da chain, não de constante local', async () => {
@@ -115,16 +115,16 @@ describe('Lobby — criação', () => {
     // O Config on-chain passa a exigir entrada bem maior.
     chain.limits = { minStake: parseAmount('2')!, maxStake: parseAmount('10')! }
 
-    await expect(lobby.reserve(ALICE, ONE, '', NOW)).rejects.toMatchObject({
+    await expect(lobby.reserve(ALICE, ONE, '', 'eightball', NOW)).rejects.toMatchObject({
       code: 'stake_out_of_range',
     })
-    await expect(lobby.reserve(ALICE, parseAmount('3')!, '', NOW)).resolves.toBeDefined()
+    await expect(lobby.reserve(ALICE, parseAmount('3')!, '', 'eightball', NOW)).resolves.toBeDefined()
   })
 
   test('um jogador, uma sala por vez', async () => {
     const { chain, lobby } = setup()
     await createRoom(chain, lobby)
-    await expect(lobby.reserve(ALICE, ONE, '', NOW)).rejects.toThrow(LobbyError)
+    await expect(lobby.reserve(ALICE, ONE, '', 'eightball', NOW)).rejects.toThrow(LobbyError)
   })
 })
 
@@ -253,11 +253,44 @@ describe('Lobby — expiração', () => {
 
   test('reserva não confirmada expira e libera o jogador', async () => {
     const { lobby } = setup()
-    await lobby.reserve(ALICE, ONE, '', NOW)
+    await lobby.reserve(ALICE, ONE, '', 'eightball', NOW)
 
     await lobby.sweep(NOW + 4 * 60 * 1000)
 
     // Como a reserva sumiu, dá para reservar de novo sem ficar preso.
-    await expect(lobby.reserve(ALICE, ONE, '', NOW + 4 * 60 * 1000)).resolves.toBeDefined()
+    await expect(lobby.reserve(ALICE, ONE, '', 'eightball', NOW + 4 * 60 * 1000)).resolves.toBeDefined()
+  })
+})
+
+describe('modalidade da mesa', () => {
+  test('a sala carrega a modalidade escolhida', async () => {
+    const { chain, lobby } = setup()
+    const r = await lobby.reserve(ALICE, ONE, 'Sinuca', 'sinuca', NOW)
+    simulateDeposit(chain, r.matchIdHex, ALICE, ONE)
+
+    const room = await lobby.confirmCreate(ALICE, r.matchIdHex, NOW)
+    expect(room.mode).toBe('sinuca')
+  })
+
+  test('quem entra joga a modalidade da sala, não a sua', async () => {
+    // Descobrir a modalidade só depois de o dinheiro estar no contrato seria
+    // uma armadilha: ela é anunciada antes do depósito e não muda.
+    const { chain, lobby } = setup()
+    const r = await lobby.reserve(ALICE, ONE, 'Sinuca', 'sinuca', NOW)
+    simulateDeposit(chain, r.matchIdHex, ALICE, ONE)
+    const room = await lobby.confirmCreate(ALICE, r.matchIdHex, NOW)
+
+    await lobby.requestJoin(BOB, room.id, NOW)
+    simulateDeposit(chain, r.matchIdHex, ALICE, ONE, BOB)
+
+    const fechada = await lobby.confirmJoin(BOB, room.id)
+    expect(fechada.mode).toBe('sinuca')
+  })
+
+  test('as duas modalidades atravessam a reserva', async () => {
+    for (const modo of ['eightball', 'sinuca'] as const) {
+      const { lobby } = setup()
+      expect((await lobby.reserve(ALICE, ONE, '', modo, NOW)).mode).toBe(modo)
+    }
   })
 })

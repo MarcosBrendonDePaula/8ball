@@ -8,7 +8,8 @@ import {
   getProvider,
   type WalletState,
 } from '@/wallet/phantom'
-import { formatAmount, parseAmount, type Room } from '@zinc-pool/protocol'
+import { formatAmount, parseAmount, type GameMode, type Room } from '@zinc-pool/protocol'
+import { GAME_MODES, GAME_MODE_INFO } from '@zinc-pool/engine-rules'
 
 const wallet = new PhantomWallet()
 const net = new GameClient(wallet)
@@ -21,7 +22,7 @@ let notice: string | null = null
 let busy = false
 
 /** Preservado entre renders — o innerHTML recria os inputs a cada atualização. */
-const form = { stake: '0.05', label: '' }
+const form = { stake: '0.05', label: '', mode: 'eightball' as GameMode }
 
 const root = document.getElementById('app')!
 
@@ -80,7 +81,7 @@ function onCreate(): void {
     render()
     return
   }
-  void run(() => net.createRoom(stake.toString(), form.label))
+  void run(() => net.createRoom(stake.toString(), form.label, form.mode))
 }
 
 // ------------------------------------------------------------------ render
@@ -173,6 +174,7 @@ function renderMyRoom(room: Room): string {
 
     <dl class="rows">
       <div class="row"><dt>Mesa</dt><dd>${esc(room.label)}</dd></div>
+      <div class="row"><dt>Modalidade</dt><dd>${esc(GAME_MODE_INFO[room.mode].name)}</dd></div>
       <div class="row"><dt>Entrada</dt><dd><strong>${formatAmount(room.stake)} ${esc(symbol())}</strong></dd></div>
       <div class="row"><dt>Pote</dt><dd>${formatAmount(pot)} ${esc(symbol())}</dd></div>
       <div class="row"><dt>Vencedor leva</dt><dd>${formatAmount(((BigInt(pot) * 9000n) / 10000n).toString())} ${esc(symbol())}</dd></div>
@@ -202,7 +204,7 @@ function renderRoomRow(room: Room): string {
     <li class="room">
       <div class="room-main">
         <span class="room-label">${esc(room.label)}</span>
-        <span class="room-host">${esc(short(room.creator))}</span>
+        <span class="room-host">${esc(GAME_MODE_INFO[room.mode].name)} · ${esc(short(room.creator))}</span>
       </div>
       <div class="room-side">
         <span class="room-stake">${formatAmount(room.stake)} ${esc(symbol())}</span>
@@ -254,6 +256,14 @@ function renderLobby(): string {
       <div class="create-fields">
         <input id="stake" inputmode="decimal" placeholder="Entrada" value="${esc(form.stake)}" />
         <input id="label" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
+        <select id="mode" aria-label="Modalidade">
+          ${GAME_MODES.map(
+            (id) =>
+              `<option value="${id}" ${form.mode === id ? 'selected' : ''}>${esc(
+                GAME_MODE_INFO[id].name,
+              )}</option>`,
+          ).join('')}
+        </select>
       </div>
       <button id="create" ${busy || balance === 0n ? 'disabled' : ''}>
         ${busy && netState.pending === 'creating' ? '<span class="spinner"></span>Aguardando a Phantom…' : 'Criar mesa e depositar'}
@@ -335,6 +345,11 @@ function bind(): void {
   const label = root.querySelector<HTMLInputElement>('#label')
   label?.addEventListener('input', () => {
     form.label = label.value
+  })
+
+  const mode = root.querySelector<HTMLSelectElement>('#mode')
+  mode?.addEventListener('change', () => {
+    form.mode = mode.value as GameMode
   })
 
   updateCountdown()
