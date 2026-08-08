@@ -311,7 +311,12 @@ export async function fetchProvenance(
   return { engineVersion: versao, physicsDigest: digest, specHash, specUri, publishedAt }
 }
 
-/** Registro permanente da partida. É onde o replay fica gravado. */
+/**
+ * Registro permanente da partida. É onde o HASH do replay fica gravado.
+ *
+ * A semente continua sendo `replay` porque mudá-la órfãria os registros já
+ * gravados sem ganhar nada — o que mudou foi o conteúdo, não o endereço.
+ */
 export function recordPda(matchId: Uint8Array): [PublicKey, number] {
   if (matchId.length !== 16) throw new Error('match_id deve ter 16 bytes.')
   return PublicKey.findProgramAddressSync([utf8('replay'), matchId], PROGRAM_ID)
@@ -323,13 +328,13 @@ export function settleMatchIx(params: {
   creator: PublicKey
   winner: PublicKey
   /**
-   * SHA-256 dos bytes do replay.
+   * Bytes do replay.
    *
-   * Não vem gravado: é recalculado na leitura, porque o replay está inteiro na
-   * conta e guardar o hash dele seria pagar 32 bytes de estado permanente por
-   * algo derivável.
+   * NÃO viajam para a chain: só o SHA-256 deles vai, e é ele que fica gravado.
+   * Recebemos os bytes aqui em vez do hash pronto de propósito — quem liquida
+   * precisa TER o replay, e calcular o hash aqui dentro remove a chance de
+   * gravar um compromisso com bytes que ninguém tem.
    */
-  /** Bytes do replay. Ficam gravados on-chain, para sempre. */
   replay: Uint8Array
   /** Os nonces revelados. O contrato confere contra os compromissos. */
   nonceCreator: Uint8Array
@@ -341,9 +346,11 @@ export function settleMatchIx(params: {
   const [house] = houseVaultPda()
   const [record] = recordPda(params.matchId)
 
-  // Prefixo de comprimento do Vec<u8> no Borsh.
-  const tamanho = new Uint8Array(4)
-  new DataView(tamanho.buffer).setUint32(0, params.replay.length, true)
+  if (params.replay.length === 0 || params.replay.length > 0xffff) {
+    throw new Error(`Replay com ${params.replay.length} bytes não é liquidável.`)
+  }
+  const tamanho = new Uint8Array(2)
+  new DataView(tamanho.buffer).setUint16(0, params.replay.length, true)
 
   return new TransactionInstruction({
     programId: PROGRAM_ID,
@@ -362,8 +369,8 @@ export function settleMatchIx(params: {
       concat(
         ixDiscriminator('settle_match'),
         params.winner.toBytes(),
+        sha256(params.replay),
         tamanho,
-        params.replay,
         params.nonceCreator,
         params.nonceOpponent,
       ),
@@ -379,12 +386,28 @@ export type MatchRecord = {
   creator: PublicKey
   pot: bigint
   settledAt: number
+  /** SHA-256 do replay. É o compromisso: os bytes vêm de fora e conferem-se contra ele. */
   resultHash: Uint8Array
   /** Os nonces que geraram o seed da quebra. */
   nonceCreator: Uint8Array
   nonceOpponent: Uint8Array
-  /** Bytes do replay, prontos para `decodeReplay`. */
-  replay: Uint8Array
+  /** Quantos bytes o replay tem. Denuncia bytes truncados antes de hashear. */
+  replayLen: number
+}
+
+/**
+ * Os bytes conferem com o compromisso gravado na chain?
+ *
+ * É a porta de entrada de todo replay vindo de fora. Enquanto o replay morava
+ * na conta, os bytes eram confiáveis por construção; agora eles chegam por HTTP,
+ * e sem esta checagem qualquer pessoa — nós inclusive — poderia servir uma
+ * partida diferente da que foi liquidada.
+ */
+export function replayMatchesRecord(record: MatchRecord, replay: Uint8Array): boolean {
+  if (replay.length !== record.replayLen) return false
+  const h = sha256(replay)
+  // Comparação byte a byte; `equals` não existe em Uint8Array puro.
+  return h.length === record.resultHash.length && h.every((b, i) => b === record.resultHash[i])
 }
 
 /**
@@ -423,7 +446,7 @@ const RECORD_OFFSET = {
 /**
  * Decodifica os bytes de um registro de partida.
  *
- * Só o layout v2. Os registros antigos têm outro discriminador de conta, então
+ * Só o layout v3. Os registros antigos têm outro discriminador de conta, então
  * a distinção é feita pelo filtro do RPC — não há como confundir os dois.
  */
 export function decodeMatchRecord(data: Uint8Array): MatchRecord {
@@ -446,9 +469,9 @@ export function decodeMatchRecord(data: Uint8Array): MatchRecord {
   offset += 32
   const nonceOpponent = data.slice(offset, offset + 32)
   offset += 32
-  const tamanho = view.getUint32(offset, true)
-  offset += 4
-  const replay = data.slice(offset, offset + tamanho)
+  const resultHash = data.slice(offset, offset + 32)
+  offset += 32
+  const replayLen = view.getUint16(offset, true)
 
   return {
     matchId: id,
@@ -458,11 +481,10 @@ export function decodeMatchRecord(data: Uint8Array): MatchRecord {
     creator: creatorWon ? winner : loser,
     pot,
     settledAt,
-    // Recalculado dos bytes que estão na própria conta.
-    resultHash: sha256(replay),
+    resultHash,
     nonceCreator,
     nonceOpponent,
-    replay,
+    replayLen,
   }
 }
 
@@ -485,7 +507,7 @@ export async function fetchPlayerHistory(
   // no offset 24 também casa com contas `Game`, onde o CRIADOR fica no mesmo
   // deslocamento — e decodificá-las como registro estoura o buffer.
   const daClasse = {
-    memcmp: { offset: 0, bytes: bs58.encode(accountDiscriminator('MatchRecordV2')) },
+    memcmp: { offset: 0, bytes: bs58.encode(accountDiscriminator('MatchRecordV3')) },
   }
 
   const porCampo = async (offset: number) =>
@@ -735,17 +757,13 @@ export async function fetchMatch(
  * quebraria na primeira conta de outro tipo.
  */
 /**
- * Tamanho do `MatchRecordV2` sem o replay.
+ * Tamanho do `MatchRecordV3`. Fixo — o registro não cresce mais com a partida.
  *
  * 8 do discriminador + 16 do match_id + duas chaves de 32 + 1 do bit que diz se
- * o criador venceu + pote + carimbo + dois nonces de 32 + prefixo de 4 do Vec +
- * bump.
- *
- * Encolheu 64 bytes ao parar de guardar o que é recalculável: a chave do
- * criador (ele é o vencedor ou o perdedor, e um bit resolve) e o hash do
- * replay (que está inteiro na própria conta).
+ * o criador venceu + pote + carimbo + dois nonces de 32 + hash de 32 + 2 do
+ * comprimento + bump.
  */
-export const RECORD_BASE_LEN = 173
+export const RECORD_LEN = 203
 
 /**
  * Depósito de isenção de aluguel, em lamports.
@@ -760,9 +778,19 @@ export const RECORD_BASE_LEN = 173
  */
 export const rentLamports = (bytes: number): bigint => BigInt((bytes + 128) * 6960)
 
-/** Quanto a permanência de um replay deste tamanho custa ao pote. */
-export const recordRentLamports = (replayBytes: number): bigint =>
-  rentLamports(RECORD_BASE_LEN + replayBytes)
+/**
+ * Quanto a permanência do registro custa ao pote.
+ *
+ * Deixou de depender do tamanho da partida quando o replay saiu da conta: uma
+ * partida de 78 tacadas custa o mesmo que uma de 10. São 0,00231 SOL, contra os
+ * 0,0057 que uma de 516 bytes custava guardando tudo — 2,5×, medido em devnet.
+ *
+ * Não são as duas ordens de grandeza que a taxa fixa de transação sugeria: toda
+ * conta paga 128 bytes de sobrecarga antes do primeiro byte útil, e o registro
+ * ainda carrega duas chaves, dois nonces e o hash. O replay era a maior parte do
+ * custo, não o custo inteiro.
+ */
+export const recordRentLamports = (): bigint => rentLamports(RECORD_LEN)
 
 export const GAME_ACCOUNT_SIZE = 114
 

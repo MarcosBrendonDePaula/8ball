@@ -62,6 +62,16 @@ async function send(ixs: Parameters<Transaction['add']>, signers: Keypair[]): Pr
 
 const STAKE = BigInt(0.05 * LAMPORTS_PER_SOL)
 
+/**
+ * Este script exercita só o fluxo do DINHEIRO; a gravação do replay tem o seu
+ * próprio, em `bun run replay`.
+ *
+ * Antes ia um array vazio, porque os bytes viajavam e um replay vazio custava
+ * zero de armazenamento. Agora o que viaja é o hash — e a instrução recusa
+ * comprimento zero, porque um compromisso com nada é indistinguível de um bug.
+ */
+const REPLAY_FICTICIO = new Uint8Array(60)
+
 console.log(`referee ${referee.publicKey.toBase58()}\n`)
 
 // ------------------------------------------------------------ jogadores
@@ -130,7 +140,7 @@ try {
         matchId,
         creator: alice.publicKey,
         winner: impostor.publicKey,
-        replay: new Uint8Array(0),
+        replay: REPLAY_FICTICIO,
         nonceCreator: nonceA,
         nonceOpponent: nonceB,
       }),
@@ -167,9 +177,7 @@ await send(
       matchId,
       creator: alice.publicKey,
       winner: alice.publicKey,
-      // Este script exercita só o fluxo do dinheiro; a gravação do replay tem
-      // o seu próprio, em `bun run replay`.
-      replay: new Uint8Array(0),
+      replay: REPLAY_FICTICIO,
       nonceCreator: nonceA,
       nonceOpponent: nonceB,
     }),

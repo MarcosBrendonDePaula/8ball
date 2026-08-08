@@ -75,9 +75,22 @@ describe('partida completa nunca fica sem saída', () => {
     // Sementes variadas porque a quebra muda a partida inteira: um travamento
     // pode depender de uma situação que só aparece em certas mesas.
     for (const semente of [1, 3, 5, 7, 9, 11]) {
-      test(`${modo}: semente ${semente} chega ao fim com ação em toda etapa`, () => {
-        expect(() => jogarAteOFim(modo, semente)).not.toThrow()
-      })
+      /*
+       * Prazo generoso de propósito.
+       *
+       * Uma partida de sinuca inteira, simulada passo a passo com a física
+       * determinística, leva 10–15 segundos — passa dos 5 padrão. Enquanto
+       * passava, estes seis testes falhavam por tempo TODA execução, e um teste
+       * que sempre falha deixa de ser sinal: ninguém olha, e um travamento de
+       * verdade entraria escondido no meio do ruído.
+       */
+      test(
+        `${modo}: semente ${semente} chega ao fim com ação em toda etapa`,
+        () => {
+          expect(() => jogarAteOFim(modo, semente)).not.toThrow()
+        },
+        30_000,
+      )
     }
   }
 })

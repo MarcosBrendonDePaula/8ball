@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Keypair, PublicKey, type TransactionInstruction } from '@solana/web3.js'
 import { MAX_ATTEMPTS, settleMatch, type SettlementDeps } from '@/settlement'
 import type { MatchEnded } from '@/match'
+import { sha256 } from '@noble/hashes/sha2.js'
 
 /**
  * A liquidação é o único ponto em que o servidor manda dinheiro para alguém.
@@ -72,7 +73,7 @@ describe('quem recebe', () => {
     expect(ix!.keys.map((k) => k.pubkey.toBase58())).toContain(B)
   })
 
-  test('o replay vai inteiro na instrução', async () => {
+  test('o que viaja é o hash do replay, não os bytes', async () => {
     let ix: TransactionInstruction | null = null
     await settleMatch(
       deps(async (i) => {
@@ -84,11 +85,17 @@ describe('quem recebe', () => {
       fim(),
     )
 
-    // O hash NÃO viaja: ele é recalculável a partir destes bytes, e guardá-lo
-    // custaria 32 bytes de estado permanente por partida.
-    expect(Buffer.from(ix!.data).toString('hex')).toContain(
-      Buffer.from(replay).toString('hex'),
-    )
+    const dados = Buffer.from(ix!.data).toString('hex')
+
+    // Os BYTES não viajam mais: armazená-los custava ~0,0057 SOL por partida,
+    // contra 0,00023 do hash. O que os liga a esta partida é o compromisso.
+    expect(dados).not.toContain(Buffer.from(replay).toString('hex'))
+    expect(dados).toContain(Buffer.from(sha256(replay)).toString('hex'))
+
+    // E o tamanho, que denuncia um replay truncado antes mesmo de hashear.
+    const tamanho = Buffer.alloc(2)
+    tamanho.writeUInt16LE(replay.length)
+    expect(dados).toContain(tamanho.toString('hex'))
   })
 })
 

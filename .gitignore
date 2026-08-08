@@ -16,3 +16,7 @@ keypairs/
 
 # Worktrees de agentes. São cópias temporárias do próprio repo.
 .claude/worktrees/
+
+# Replays arquivados. São dados de execução, não código — e o que prova cada um
+# deles é o hash on-chain, não estarem aqui.
+data/

@@ -30,6 +30,7 @@ import {
   matchIdFromUuid,
   readBalance,
   recordPda,
+  replayMatchesRecord,
   settleMatchIx,
 } from '@zinc-pool/chain-client'
 import { DEFAULT_CUE, ENGINE_VERSION } from '@zinc-pool/engine-physics'
@@ -195,15 +196,22 @@ if (!registro) {
 console.log(`   conta      ${pda.toBase58()}`)
 console.log(`   vencedor   ${registro.winner.toBase58().slice(0, 8)}…`)
 console.log(`   pote       ${sol(registro.pot)} SOL`)
-console.log(`   replay     ${registro.replay.length} bytes`)
+console.log(`   replay     ${registro.replayLen} bytes (hash na conta, bytes fora)`)
 
 const info = await connection.getAccountInfo(pda, 'confirmed')
-console.log(`   aluguel    ${sol(info?.lamports ?? 0)} SOL (permanência)`)
+console.log(`   aluguel    ${sol(info?.lamports ?? 0)} SOL (permanência, tamanho fixo)`)
 
-console.log('\n5) Reproduzindo a partida SÓ com os bytes da chain')
+console.log('\n5) Conferindo os bytes contra o compromisso e reproduzindo')
 
-// A partir daqui, nada vem do nosso lado — só o que está gravado.
-const doOnChain = decodeReplay(registro.replay)
+// Os bytes não vêm mais da conta — vêm de fora. O que a chain garante é que
+// SÃO ESTES: se o hash não bater, o replay é outro e nada do que ele diz vale.
+if (!replayMatchesRecord(registro, bytes)) {
+  console.error('   *** os bytes não batem com o hash gravado ***')
+  process.exit(1)
+}
+console.log('   hash confere com o gravado on-chain')
+
+const doOnChain = decodeReplay(bytes)
 const prova = replayProves(doOnChain, {
   winner: winnerIndex,
   resultHash: registro.resultHash,

@@ -1,6 +1,6 @@
 import { explorerAddressUrl } from '@/config'
 import { connection } from '@/wallet/balances'
-import { fetchPlayerHistory, winnerMatchesReplay } from '@zinc-pool/chain-client'
+import { fetchPlayerHistory, replayMatchesRecord, winnerMatchesReplay } from '@zinc-pool/chain-client'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { decodeReplay, verifyReplay } from '@zinc-pool/replay'
 import { PublicKey } from '@solana/web3.js'
@@ -14,9 +14,17 @@ import { formatAmount } from '@zinc-pool/protocol'
  * que o nosso servidor esteja fora do ar, e pode refazer a consulta com
  * qualquer RPC — sem confiar na nossa versão dos fatos.
  *
- * Cada linha traz o link para a conta no explorer e, o que importa de verdade,
- * a CONFERÊNCIA do replay: os bytes gravados são reproduzidos aqui, no
- * navegador do jogador, e o vencedor calculado é comparado com o declarado.
+ * O QUE MUDOU NA V3: os bytes do replay não estão mais na conta.
+ *
+ * A conta guarda o SHA-256 deles. Os bytes vêm do arquivo em `/api/replay/…`,
+ * e a PRIMEIRA coisa que se faz com eles é conferir o hash contra o que está na
+ * chain. Se bater, são exatamente os bytes que o referee assumiu ao liquidar, e
+ * tudo o que vem depois vale igual a antes. Se não bater, a linha diz que
+ * diverge — e a origem dos bytes deixa de importar.
+ *
+ * A troca, dita sem enfeite: a integridade continua garantida pelo protocolo, a
+ * DISPONIBILIDADE não. Um replay que ninguém guardou aparece como
+ * "indisponível", que é honesto — e diferente de "diverge", que seria acusação.
  */
 
 export type HistoryEntry = {
@@ -26,7 +34,7 @@ export type HistoryEntry = {
   pot: string
   settledAt: number
   /** O replay reproduzido confirma o vencedor gravado? */
-  verificado: 'confere' | 'divergiu' | 'erro'
+  verificado: 'confere' | 'divergiu' | 'erro' | 'indisponível'
   motivo: string | null
   /** Versão do FORMATO e da FÍSICA com que a partida foi gravada. */
   versao: { formato: number; fisica: number } | null
@@ -35,14 +43,19 @@ export type HistoryEntry = {
 export async function loadHistory(address: string): Promise<HistoryEntry[]> {
   const registros = await fetchPlayerHistory(connection, new PublicKey(address))
 
-  return registros.map((r) => {
+  // Em paralelo: cada linha depende de um download independente, e serializar
+  // faria o histórico levar uma volta de rede por partida.
+  return Promise.all(
+    registros.map(async (r) => {
     const matchId = Buffer.from(r.matchId).toString('hex')
+
+    const replay = await buscarReplay(matchId)
 
     // Os dois primeiros campos do replay são a versão do formato e a da
     // física. Lidos direto dos bytes, sem decodificar: valem mesmo quando o
     // resto do replay é de uma versão que este código não sabe ler.
     const versao =
-      r.replay.length >= 3 ? { formato: r.replay[0]!, fisica: r.replay[2]! } : null
+      replay && replay.length >= 3 ? { formato: replay[0]!, fisica: replay[2]! } : null
 
     const base = {
       matchId,
@@ -57,10 +70,10 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
      * Reproduzir custa alguns milissegundos por partida e é a única coisa aqui
      * que o jogador não obteria olhando o explorer.
      *
-     * QUATRO checagens, e agora elas cobrem a promessa inteira:
+     * QUATRO checagens, e elas cobrem a promessa inteira:
      *
-     *   1. o hash dos bytes bate com o `result_hash` gravado — o replay não foi
-     *      trocado depois da liquidação
+     *   1. o hash dos bytes bate com o `replay_hash` gravado — os bytes são os
+     *      que o referee assumiu, venham de onde vierem
      *   2. o seed veio dos nonces gravados — não foi escolhido pelo servidor
      *   3. o replay reproduz até um vencedor — é uma partida completa
      *   4. esse vencedor é a CARTEIRA que recebeu — o jogador 0 é o criador,
@@ -73,17 +86,34 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
      * A segunda era impossível até os nonces irem para a chain: sem elas, nada
      * amarrava o seed a coisa nenhuma, e o servidor fabricava uma partida
      * inteira que nunca aconteceu.
+     *
+     * A primeira é a que a v3 promoveu a porteira. Antes ela era formalidade —
+     * os bytes vinham da própria conta. Agora vêm por HTTP, e é ela que impede
+     * que servi-los errado engane alguém.
      */
-    try {
-      const conferido = verifyReplay(decodeReplay(r.replay))
+    if (!replay) {
+      return {
+        ...base,
+        verificado: 'indisponível' as const,
+        motivo:
+          'os bytes deste replay não estão arquivados. O compromisso on-chain continua válido: ' +
+          'qualquer cópia que apareça pode ser conferida contra ele.',
+      }
+    }
 
-      if (!mesmosBytes(conferido.replayHash, r.resultHash)) {
+    try {
+      // Primeiro os bytes, depois o que eles dizem. Reproduzir um replay que
+      // não bate com o hash seria simular uma partida inventada e reportar o
+      // resultado dela como se fosse a desta linha.
+      if (!replayMatchesRecord(r, replay)) {
         return {
           ...base,
           verificado: 'divergiu' as const,
-          motivo: 'os bytes do replay não batem com o hash gravado na liquidação',
+          motivo: 'os bytes servidos não batem com o hash gravado na liquidação',
         }
       }
+
+      const conferido = verifyReplay(decodeReplay(replay))
 
       if (conferido.winner === null) {
         return {
@@ -95,7 +125,7 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
 
       // O seed tem de ser o hash dos dois nonces gravados na liquidação.
       const esperado = sha256(concat(r.nonceCreator, r.nonceOpponent))
-      if (!mesmosBytes(esperado, decodeReplay(r.replay).seed)) {
+      if (!mesmosBytes(esperado, decodeReplay(replay).seed)) {
         return {
           ...base,
           verificado: 'divergiu' as const,
@@ -119,7 +149,25 @@ export async function loadHistory(address: string): Promise<HistoryEntry[]> {
       // viajar dentro do replay.
       return { ...base, verificado: 'erro' as const, motivo: explicar(err) }
     }
-  })
+    }),
+  )
+}
+
+/**
+ * Baixa os bytes de um replay do arquivo.
+ *
+ * Falhar aqui NÃO é fraude — é o servidor fora do ar, o replay nunca arquivado,
+ * a rede caindo. Devolve `null` e quem chama trata como indisponível, nunca
+ * como divergência.
+ */
+async function buscarReplay(matchId: string): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(`/api/replay/${matchId}`)
+    if (!res.ok) return null
+    return new Uint8Array(await res.arrayBuffer())
+  } catch {
+    return null
+  }
 }
 
 export function renderHistory(entradas: HistoryEntry[], symbol: string): string {
@@ -142,6 +190,8 @@ const TOM: Record<HistoryEntry['verificado'], string> = {
   confere: 'text-chalk',
   divergiu: 'font-semibold text-[#e06c5b]',
   erro: 'opacity-50',
+  // Mesmo tom apagado do erro: nenhum dos dois acusa ninguém.
+  'indisponível': 'opacity-50',
 }
 
 function linha(e: HistoryEntry, symbol: string): string {
@@ -180,6 +230,7 @@ const SELO: Record<HistoryEntry['verificado'], string> = {
   confere: '✓ replay confere',
   divergiu: '⚠ replay diverge',
   erro: '· não verificável',
+  'indisponível': '· replay não arquivado',
 }
 
 /** Traduz a falha de verificação para algo que o jogador entenda. */

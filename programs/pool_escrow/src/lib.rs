@@ -224,17 +224,23 @@ pub mod pool_escrow {
 
     /// Liquida a partida, distribuindo o pote conforme a divisão do Config.
     ///
-    /// Assinado pelo referee, cuja chave está no Config. O `result_hash` é o
-    /// hash do replay e fica gravado no evento — é o que permite auditoria
-    /// externa de que o vencedor declarado é o correto.
+    /// Assinado pelo referee, cuja chave está no Config. O que vai para a chain
+    /// é o HASH do replay: quem tiver os bytes confere contra ele e reproduz a
+    /// partida por conta própria.
     pub fn settle_match(
         ctx: Context<SettleMatch>,
         winner: Pubkey,
-        replay: Vec<u8>,
+        replay_hash: [u8; 32],
+        replay_len: u16,
         nonce_creator: [u8; 32],
         nonce_opponent: [u8; 32],
     ) -> Result<()> {
-        require!(replay.len() <= MAX_REPLAY_BYTES, EscrowError::ReplayTooLarge);
+        // O teto continua valendo, agora como sanidade: um comprimento absurdo
+        // seria sinal de replay que nenhum verificador nosso sabe ler.
+        require!(
+            (replay_len as usize) <= MAX_REPLAY_BYTES && replay_len > 0,
+            EscrowError::ReplayTooLarge
+        );
         let game = &ctx.accounts.game;
         require!(game.state == MatchState::Committed as u8, EscrowError::NotSettleable);
         require!(
@@ -267,21 +273,22 @@ pub mod pool_escrow {
         /*
          * A PERMANÊNCIA É PAGA PELO POTE, não pela casa.
          *
-         * O registro do replay fica na blockchain para sempre, e isso exige um
-         * depósito de isenção de aluguel proporcional ao tamanho. NÃO é uma
-         * cobrança recorrente — os lamports ficam parados na conta e voltariam
-         * se ela fosse fechada. Mas nunca fechamos o registro, porque ele é a
-         * prova da partida: na prática o capital fica imobilizado para sempre.
+         * O registro fica na blockchain para sempre, e isso exige um depósito
+         * de isenção de aluguel. NÃO é uma cobrança recorrente — os lamports
+         * ficam parados na conta e voltariam se ela fosse fechada. Mas nunca
+         * fechamos o registro, porque ele é a prova da partida: na prática o
+         * capital fica imobilizado para sempre.
          *
          * Quem imobilizava era o referee — ou seja, nós. A conta estava
-         * invertida: numa mesa de 0.01 SOL o depósito é 0.00685 e o rake da
+         * invertida: numa mesa de 0.01 SOL o depósito era 0.00685 e o rake da
          * casa é 0.001. Cada partida pequena travava quase sete vezes a
          * receita dela, sem limite de acumulação.
          *
-         * Descontar do pote põe o custo onde ele nasce e faz a conta escalar
-         * sozinha: quem aposta mais banca um replay maior sem esforço.
+         * Descontar do pote resolveu o lado errado da conta. Guardar só o hash
+         * resolveu o tamanho dela: de ~0,0057 para 0,00231, fixo, porque o
+         * registro deixou de crescer com a partida.
          */
-        let aluguel = Rent::get()?.minimum_balance(MatchRecordV2::space(replay.len()));
+        let aluguel = Rent::get()?.minimum_balance(MatchRecordV3::LEN);
         let pot = pot_bruto
             .checked_sub(aluguel)
             .ok_or(EscrowError::PotTooSmallForRecord)?;
@@ -331,7 +338,8 @@ pub mod pool_escrow {
         record.nonce_opponent = nonce_opponent;
         record.pot = pot;
         record.settled_at = Clock::get()?.unix_timestamp;
-        record.replay = replay;
+        record.replay_hash = replay_hash;
+        record.replay_len = replay_len;
         record.bump = ctx.bumps.record;
 
         emit!(MatchSettled {
@@ -341,9 +349,7 @@ pub mod pool_escrow {
             prize,
             treasury: treasury_cut,
             house: house_cut,
-            // Calculado aqui: o replay está na conta, então guardar o hash
-            // seria redundante — mas quem escuta o evento não tem a conta.
-            result_hash: hash(&ctx.accounts.record.replay).to_bytes(),
+            result_hash: replay_hash,
         });
 
         Ok(())
@@ -847,7 +853,6 @@ pub struct CancelMatch<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(winner: Pubkey, replay: Vec<u8>)]
 pub struct SettleMatch<'info> {
     #[account(mut, address = config.referee @ EscrowError::NotReferee)]
     pub referee: Signer<'info>,
@@ -870,16 +875,16 @@ pub struct SettleMatch<'info> {
     pub treasury_vault: Account<'info, Vault>,
     #[account(mut, seeds = [b"house"], bump = house_vault.bump)]
     pub house_vault: Account<'info, Vault>,
-    /// Registro permanente. O referee paga o aluguel; é o custo de a partida
-    /// ficar auditável para sempre.
+    /// Registro permanente. Tamanho fixo desde a v3: guarda o hash do replay,
+    /// não os bytes. O referee adianta o aluguel e o pote o devolve.
     #[account(
         init,
         payer = referee,
-        space = MatchRecordV2::space(replay.len()),
+        space = MatchRecordV3::LEN,
         seeds = [b"replay", game.match_id.as_ref()],
         bump
     )]
-    pub record: Account<'info, MatchRecordV2>,
+    pub record: Account<'info, MatchRecordV3>,
     pub system_program: Program<'info, System>,
 }
 
@@ -931,11 +936,34 @@ pub enum VaultKind {
 /**
  * Registro permanente de uma partida liquidada.
  *
- * Guarda o suficiente para qualquer pessoa reproduzir e conferir o resultado
- * sem depender de nenhum serviço nosso.
+ * Guarda o COMPROMISSO com o replay, não o replay.
+ *
+ * Até a v2 os bytes inteiros ficavam aqui, e a promessa era "daqui a anos, com
+ * o site fora do ar, os bytes continuam lá". Era uma promessa cara: a Solana
+ * cobra 6960 lamports por byte de estado permanente, e cobra por transmissão
+ * uma taxa fixa que não olha o tamanho. Medido: uma transação carregando 200
+ * bytes custa MENOS que armazenar um único byte.
+ *
+ * O que a v3 troca:
+ *
+ *   guardar os bytes (516)  →  0,00568 SOL, e crescendo com a partida
+ *   guardar o hash deles    →  0,00231 SOL, fixo
+ *
+ * 2,5× — não as duas ordens de grandeza que a taxa de transação sugeria. A
+ * diferença é que toda conta paga 128 bytes de sobrecarga antes do primeiro
+ * byte útil, e o registro ainda carrega duas chaves, dois nonces e o hash. O
+ * replay era a maior parte, não a totalidade.
+ *
+ * O que NÃO muda: ninguém consegue adulterar um replay sem que o hash denuncie.
+ * A integridade continua garantida pelo protocolo.
+ *
+ * O que muda: a DISPONIBILIDADE dos bytes deixa de ser problema da Solana e
+ * passa a ser nosso. Eles vivem no servidor e, principalmente, nos dois
+ * clientes — cada jogador termina a partida com a cópia inteira, então o
+ * perdedor não precisa da nossa boa vontade para contestar.
  */
 #[account]
-pub struct MatchRecordV2 {
+pub struct MatchRecordV3 {
     pub match_id: [u8; 16],
     pub winner: Pubkey,
     pub loser: Pubkey,
@@ -964,18 +992,30 @@ pub struct MatchRecordV2 {
      */
     pub nonce_creator: [u8; 32],
     pub nonce_opponent: [u8; 32],
-    /// O replay em si: seed, tacos e todas as tacadas.
-    pub replay: Vec<u8>,
+    /**
+     * SHA-256 do replay.
+     *
+     * É o que amarra os bytes servidos fora da chain a esta partida. Quem
+     * recebe um replay confere o hash contra este campo; se bater, os bytes são
+     * exatamente os que o referee afirmou ao liquidar, e reproduzi-los prova o
+     * vencedor. Se não bater, o replay é falso — e o contrário também vale:
+     * ninguém consegue trocar o replay depois sem que isto denuncie.
+     */
+    pub replay_hash: [u8; 32],
+    /**
+     * Tamanho do replay em bytes.
+     *
+     * Barato (2 bytes) e evita um ataque de disponibilidade parcial: sem ele,
+     * quem serve os bytes pode entregar um prefixo e alegar que é tudo. Com o
+     * tamanho gravado, um replay truncado é detectável antes mesmo de hashear.
+     */
+    pub replay_len: u16,
     pub bump: u8,
 }
 
-impl MatchRecordV2 {
-    /// Tamanho sem o replay. O `+ 4` é o prefixo de comprimento do `Vec`.
-    pub const BASE_LEN: usize = 8 + 16 + 32 * 2 + 1 + 8 + 8 + 32 * 2 + 4 + 1;
-
-    pub fn space(replay_len: usize) -> usize {
-        Self::BASE_LEN + replay_len
-    }
+impl MatchRecordV3 {
+    /// Tamanho fixo — o registro não cresce mais com a partida.
+    pub const LEN: usize = 8 + 16 + 32 * 2 + 1 + 8 + 8 + 32 * 2 + 32 + 2 + 1;
 }
 
 /**
@@ -1103,13 +1143,8 @@ pub struct MatchSettled {
     pub prize: u64,
     pub treasury: u64,
     pub house: u64,
-    /**
-     * Hash do replay, calculado na liquidação.
-     *
-     * Não fica guardado na conta: o replay está lá inteiro, e o hash dele é
-     * recalculável. Vai no evento porque quem escuta a chain não tem a conta
-     * em mãos.
-     */
+    /// Hash do replay. Repete o que fica na conta, para quem escuta a chain não
+    /// precisar buscá-la.
     pub result_hash: [u8; 32],
 }
 

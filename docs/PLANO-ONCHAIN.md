@@ -1,5 +1,22 @@
 # Plano: a partida acontece na chain
 
+> **CONGELADO.** Este plano descreve o desenho de tacada-por-tacada on-chain.
+> Ele não foi executado, e a razão está registrada abaixo — os dois benefícios
+> que ele comprava saíram mais baratos por outro caminho.
+>
+> **O que foi feito no lugar (registro v3):** o replay saiu do estado
+> permanente e ficou só o SHA-256 dele. Depósito por partida caiu de ~0,0057
+> para 0,00231 SOL, fixo, medido em devnet. Os bytes passam a viver nos dois
+> clientes e no arquivo em `/api/replay/…`.
+>
+> **O que isso NÃO entregou, e este plano ainda entregaria:** autenticidade das
+> tacadas (o referee continua podendo fabricar entradas) e resistência a
+> censura (o jogador prova que jogou sem depender de ninguém). O caminho barato
+> para a primeira é assinar cada tacada com uma chave de sessão — a Fase 1
+> daqui continua válida inteira, e os 64 bytes de assinatura por tacada, que
+> antes eram impagáveis, agora são de graça porque o replay não é mais
+> armazenado.
+
 Hoje o servidor é dono da partida e a blockchain guarda o resultado. Este plano
 inverte isso: **cada tacada é uma transação assinada e paga pelo jogador**, e o
 servidor vira simulador e coordenador.

@@ -25,6 +25,7 @@ import { MatchRuleError, REVEAL_TIMEOUT_MS } from '@/match'
 import { Matches } from '@/matches'
 import { startSweeper } from '@/sweeper'
 import { settleMatch } from '@/settlement'
+import { guardarReplay, lerReplay } from '@/archive'
 import {
   ClientMessage,
   DECIMALS,
@@ -572,6 +573,28 @@ const server = Bun.serve<Session, never>({
       })()
     }
 
+    /**
+     * Os bytes de um replay liquidado.
+     *
+     * Aberto, sem autenticação e com CORS liberado de propósito: a auditoria só
+     * vale se qualquer pessoa puder fazê-la. Quem baixar daqui deve conferir o
+     * SHA-256 contra o `replay_hash` da conta on-chain — sem isso, está
+     * confiando em nós, que é exatamente o que o desenho evita.
+     */
+    if (url.pathname.startsWith('/api/replay/')) {
+      const bytes = lerReplay(url.pathname.slice('/api/replay/'.length))
+      if (!bytes) return new Response('Replay não arquivado', { status: 404 })
+      return new Response(bytes.buffer as ArrayBuffer, {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'access-control-allow-origin': '*',
+          // Imutável: um replay liquidado nunca muda — se mudasse, o hash
+          // on-chain denunciaria.
+          'cache-control': 'public, max-age=31536000, immutable',
+        },
+      })
+    }
+
     if (url.pathname === '/api/health') {
       return Response.json({
         ok: true,
@@ -672,6 +695,17 @@ async function liquidar(
   players: readonly [string, string],
   result: Parameters<typeof settleMatch>[3],
 ): Promise<void> {
+  // Arquiva ANTES de liquidar. O que vai para a chain é só o hash destes bytes;
+  // se eles não existirem em lugar nenhum, o registro on-chain vira um
+  // compromisso com o vazio — parece prova e não é.
+  try {
+    guardarReplay(matchId, result.replay)
+  } catch (err) {
+    console.error(`[archive] ${matchId.slice(0, 8)}… não arquivou: ${err}`)
+    // Segue mesmo assim: os dois jogadores já receberam os bytes no `match.end`,
+    // e o pagamento do vencedor não pode depender do nosso disco.
+  }
+
   if (!refereeKeypair) {
     console.warn(`[settle] sem chave de referee; ${matchId.slice(0, 8)}… irá para reembolso`)
     toPlayers(players, {

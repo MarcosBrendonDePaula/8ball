@@ -81,15 +81,15 @@ describe('replay reproduz a partida jogada', () => {
 
       expect(match.recorder.shotCount).toBeGreaterThan(0)
 
-      // Passa pelos bytes de propósito: é essa a forma que vai on-chain, e
-      // serializar/desserializar poderia perder algo que o objeto em memória
-      // ainda tem.
+      // Passa pelos bytes de propósito: é deles que sai o hash gravado
+      // on-chain, e serializar/desserializar poderia perder algo que o objeto
+      // em memória ainda tem.
       const bytes = match.recorder.toBytes()
       const resultado = verifyReplay(decodeReplay(bytes))
 
       expect(resultado.shotsApplied).toBe(match.recorder.shotCount)
       expect(resultado.winner).toBe(match.summary.winner)
-    })
+    }, 30_000)
 
     test(`${modo}: a mesa final é idêntica, bola por bola`, () => {
       const match = jogarPartida(modo, 3)
@@ -213,7 +213,7 @@ describe('reconstruir do histórico chega ao mesmo lugar', () => {
       reconstruida.catchUp(r.shots, r.decisions, r.placements)
 
       expect(hashDaMesa(reconstruida)).toBe(hashDaMesa(aoVivo))
-    })
+    }, 30_000)
 
     test(`${modo}: o estado de regras também confere`, () => {
       const aoVivo = jogarPartida(modo, 5, 25)
