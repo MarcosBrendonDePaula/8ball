@@ -29,6 +29,7 @@ import { guardarReplay, lerReplay } from '@/archive'
 import {
   ClientMessage,
   DECIMALS,
+  checarMotor,
   type ErrorCode,
   type Room,
   type ServerMessage,
@@ -38,7 +39,7 @@ const chain = new SolanaChain()
 const lobby = new Lobby(chain)
 const matches = new Matches()
 
-type Session = { address: string | null; subscribed: boolean }
+type Session = { address: string | null; subscribed: boolean; userAgent: string }
 
 const sockets = new Set<ServerWebSocket<Session>>()
 
@@ -419,6 +420,22 @@ async function handle(ws: ServerWebSocket<Session>, msg: ClientMessage, host: st
     return
   }
 
+  /*
+   * A trava do motor fica ANTES de reservar e de entrar numa mesa.
+   *
+   * É o último ponto em que ainda não há dinheiro envolvido: `lobby.reserve` e
+   * `lobby.requestJoin` são o que devolvem `deposit.required`. Barrar depois do
+   * depósito significaria devolver o dinheiro pelo prazo, e barrar durante a
+   * partida seria pior ainda.
+   */
+  if (msg.t === 'lobby.reserve' || msg.t === 'lobby.requestJoin') {
+    const veredito = checarMotor(ws.data.userAgent)
+    if (!veredito.permitido) {
+      fail(ws, 'engine_unverified', veredito.motivo)
+      return
+    }
+  }
+
   try {
     switch (msg.t) {
       case 'lobby.reserve': {
@@ -529,7 +546,19 @@ const server = Bun.serve<Session, never>({
     const url = new URL(req.url)
 
     if (url.pathname === '/ws') {
-      const ok = srv.upgrade(req, { data: { address: null, subscribed: false } })
+      // O `user-agent` é lido AQUI porque é o único ponto em que existe um
+      // pedido HTTP: depois do upgrade só há mensagens de WebSocket, e um
+      // cabeçalho que o cliente mandasse por lá seria só o que ele quisesse
+      // dizer de si. Este também é, e vale o que vale — a trava é uma proteção
+      // contra divergência acidental, não contra quem quer burlá-la. Quem forjar
+      // o cabeçalho joga num motor não verificado por conta e risco.
+      const ok = srv.upgrade(req, {
+        data: {
+          address: null,
+          subscribed: false,
+          userAgent: req.headers.get('user-agent') ?? '',
+        },
+      })
       return ok ? undefined : new Response('Upgrade falhou', { status: 400 })
     }
 

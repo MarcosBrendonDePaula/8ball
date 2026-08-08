@@ -75,6 +75,14 @@ export const ErrorCode = z.enum([
   'chain_error',
   'rate_limited',
   'internal',
+  /**
+   * O motor do navegador não passou pela verificação de determinismo.
+   *
+   * Código próprio para o cliente poder tratá-lo como o que é — uma limitação
+   * conhecida, com caminho alternativo — em vez de um erro genérico que soa
+   * como defeito.
+   */
+  'engine_unverified',
 
   // Partida
   'match_not_found',
@@ -409,3 +417,4 @@ export function parseAmount(input: string, decimals = DECIMALS): bigint | null {
   if (frac.length > decimals) return null
   return BigInt(whole + frac.padEnd(decimals, '0'))
 }
+export * from './engines'

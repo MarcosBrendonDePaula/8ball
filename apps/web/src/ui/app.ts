@@ -9,7 +9,7 @@ import {
   type WalletState,
 } from '@/wallet/phantom'
 import { loadHistory, renderHistory, type HistoryEntry } from '@/ui/history'
-import { formatAmount, parseAmount, type GameMode, type Room } from '@zinc-pool/protocol'
+import { checarMotor, formatAmount, parseAmount, type GameMode, type Room } from '@zinc-pool/protocol'
 import { GAME_MODES, GAME_MODE_INFO } from '@zinc-pool/engine-rules'
 
 const wallet = new PhantomWallet()
@@ -250,7 +250,10 @@ function renderRoomRow(room: Room): string {
       </div>
       <div class="flex flex-none items-center gap-2.5">
         <span class="font-mono text-xs/none font-medium text-gold">${formatAmount(room.stake)} ${esc(symbol())}</span>
-        <button class="join w-auto px-3.5 py-2 text-xs/none" ${busy ? 'disabled' : ''} data-room="${room.id}">Entrar</button>
+        <button class="join w-auto px-3.5 py-2 text-xs/none"
+                ${busy || !MOTOR.permitido ? 'disabled' : ''}
+                ${MOTOR.permitido ? '' : `title="${esc(MOTOR.motivo)}"`}
+                data-room="${room.id}">Entrar</button>
       </div>
     </li>`
 }
@@ -304,6 +307,39 @@ function renderFaucet(): string {
  * cortes são `max-width`, e não os breakpoints do Tailwind, porque as larguras
  * saem do próprio conteúdo: 1180px é onde as três colunas param de caber.
  */
+/**
+ * O motor deste navegador foi verificado?
+ *
+ * Calculado uma vez: o `user-agent` não muda durante a sessão, e a resposta
+ * decide se metade da interface fica ativa.
+ *
+ * Quem decide de verdade é o servidor — este cheque é para o jogador SABER
+ * antes de tentar, em vez de clicar, abrir a carteira e levar um erro. Se os
+ * dois discordassem o jogador veria o botão vivo e o depósito recusado, e é por
+ * isso que a detecção mora num módulo compartilhado.
+ */
+const MOTOR = checarMotor(navigator.userAgent)
+
+function renderAvisoMotor(): string {
+  if (MOTOR.permitido) return ''
+
+  return `
+    <div class="mb-4 rounded-caixa border border-[#e0a05b]/40 bg-[#e0a05b]/[8%] p-3.5">
+      <p class="m-0 mb-1.5 font-semibold text-[13px] text-[#e0a05b]">
+        Apostas indisponíveis neste navegador
+      </p>
+      <p class="m-0 text-[12px]/[1.6] opacity-80">${esc(MOTOR.motivo)}</p>
+      <p class="m-0 mt-2 text-[12px]/[1.6] opacity-60">
+        A física precisa dar exatamente o mesmo resultado em todo lugar — é isso que
+        faz o replay de uma partida provar quem ganhou. Onde ainda não conferimos,
+        preferimos não deixar dinheiro entrar.
+        <a class="underline opacity-80 hover:opacity-100" href="/determinism.html">
+          Rodar a verificação aqui
+        </a>
+      </p>
+    </div>`
+}
+
 function renderLobby(): string {
   const rooms = netState.rooms
   const balance = netState.lamports
@@ -321,6 +357,7 @@ function renderLobby(): string {
       </aside>
 
       <main class="min-w-0">
+        ${renderAvisoMotor()}
         <section class="painel">
           <h2 class="section">Criar mesa</h2>
           <div class="mb-[22px] grid gap-2.5 rounded-caixa border border-line-soft bg-white/[1.5%] p-3.5">
@@ -338,7 +375,7 @@ function renderLobby(): string {
               </select>
               <input id="label" class="col-span-2 m-0" maxlength="24" placeholder="Nome da mesa (opcional)" value="${esc(form.label)}" />
             </div>
-            <button id="create" ${busy || balance === 0n ? 'disabled' : ''}>
+            <button id="create" ${busy || balance === 0n || !MOTOR.permitido ? 'disabled' : ''}>
               ${busy && netState.pending === 'creating' ? '<span class="spinner"></span>Aguardando a Phantom…' : 'Criar mesa e depositar'}
             </button>
           </div>

@@ -14,7 +14,7 @@
     "build": "bun run --cwd apps/web build",
     "preview": "bun run --cwd apps/web preview",
     "typecheck": "bunx tsc --noEmit -p packages/engine-physics && bunx tsc --noEmit -p packages/engine-rules && bunx tsc --noEmit -p packages/replay && bunx tsc --noEmit -p apps/web && bunx tsc --noEmit -p apps/server && bunx tsc --noEmit -p scripts",
-    "test": "bun run --cwd packages/engine-physics test && bun run --cwd packages/engine-rules test && bun run --cwd packages/replay test && bun run --cwd apps/server test && bun run --cwd apps/web test",
+    "test": "bun run --cwd packages/protocol test && bun run --cwd packages/engine-physics test && bun run --cwd packages/engine-rules test && bun run --cwd packages/replay test && bun run --cwd apps/server test && bun run --cwd apps/web test",
     "verify": "bun scripts/verify.ts",
     "determinism": "bun run build && bun scripts/check-determinism.ts",
     "cycle": "bun scripts/devnet-settle.ts",

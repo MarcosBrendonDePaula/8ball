@@ -20,6 +20,13 @@ const sign = (keypair: Keypair, message: string): string =>
 const PORT = 8799
 const BASE = `http://localhost:${PORT}`
 
+/** Motor verificado por `bun run determinism`. */
+const UA_FIREFOX =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0'
+/** WebKit — determinismo nunca conferido, e por isso trancado fora das apostas. */
+const UA_SAFARI =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15'
+
 const proc = Bun.spawn(['bun', 'src/index.ts'], {
   env: { ...process.env, PORT: String(PORT) },
   cwd: import.meta.dir + '/..',
@@ -48,8 +55,21 @@ class TestClient {
   #inbox: ServerMessage[] = []
   #waiters: Array<{ match: (m: ServerMessage) => boolean; resolve: (m: ServerMessage) => void }> = []
 
-  constructor(readonly keypair: Keypair) {
-    this.#ws = new WebSocket(`ws://localhost:${PORT}/ws`)
+  /**
+   * `userAgent` porque o servidor tranca motores não verificados fora das mesas
+   * apostadas, e o WebSocket do Bun se anuncia como um cliente que não é
+   * navegador nenhum — barrado, corretamente. Um teste de lobby precisa fingir
+   * ser o navegador que ele representa.
+   */
+  constructor(
+    readonly keypair: Keypair,
+    userAgent = UA_FIREFOX,
+  ) {
+    // O tipo padrão do `WebSocket` só prevê a lista de subprotocolos; o Bun
+    // aceita cabeçalhos, que é o que permite fingir um navegador aqui.
+    this.#ws = new WebSocket(`ws://localhost:${PORT}/ws`, {
+      headers: { 'user-agent': userAgent },
+    } as unknown as string[])
     this.#ws.onmessage = (e) => {
       const parsed = ServerMessage.safeParse(JSON.parse(String(e.data)))
       if (!parsed.success) return
@@ -224,5 +244,58 @@ test('operar sala sem autenticar é recusado', async () => {
 
   const err = await client.expect('error')
   expect(err.code).toBe('unauthenticated')
+  client.close()
+}, 20_000)
+
+/**
+ * A trava do motor.
+ *
+ * A detecção tem os seus próprios testes; estes provam que ela está LIGADA, no
+ * lugar certo — antes de qualquer depósito — e que o jogador recebe um código
+ * que dá para tratar, em vez de um erro genérico que parece defeito.
+ */
+test('WebKit não consegue abrir mesa apostada', async () => {
+  await waitForServer()
+
+  const client = new TestClient(Keypair.generate(), UA_SAFARI)
+  await client.open()
+  await client.signIn()
+  client.send({ t: 'lobby.reserve', stake: '50000000', label: 'Mesa' })
+
+  const err = await client.expect('error')
+  expect(err.code).toBe('engine_unverified')
+  // A recusa vem ANTES de `deposit.required`: barrar depois significaria
+  // dinheiro preso na chain esperando o prazo.
+  expect(err.message).toContain('sem aposta')
+  client.close()
+}, 20_000)
+
+test('WebKit também não entra na mesa de outro', async () => {
+  await waitForServer()
+
+  const client = new TestClient(Keypair.generate(), UA_SAFARI)
+  await client.open()
+  await client.signIn()
+  client.send({ t: 'lobby.requestJoin', roomId: 'qualquer' })
+
+  // Recusado pelo motor, não por a sala não existir — a ordem importa: a trava
+  // vem antes de qualquer coisa que possa levar a um depósito.
+  const err = await client.expect('error')
+  expect(err.code).toBe('engine_unverified')
+  client.close()
+}, 20_000)
+
+test('WebKit continua autenticando e vendo o lobby', async () => {
+  await waitForServer()
+
+  // O bloqueio é só das APOSTAS. Trancar o login inteiro puniria quem só quer
+  // ver o histórico das próprias partidas ou jogar sem dinheiro.
+  const client = new TestClient(Keypair.generate(), UA_SAFARI)
+  await client.open()
+  await client.signIn()
+  client.send({ t: 'lobby.subscribe' })
+
+  const estado = await client.expect('lobby.state')
+  expect(Array.isArray(estado.rooms)).toBe(true)
   client.close()
 }, 20_000)
