@@ -759,11 +759,23 @@ export async function fetchMatch(
 /**
  * Tamanho do `MatchRecordV3`. Fixo — o registro não cresce mais com a partida.
  *
- * 8 do discriminador + 16 do match_id + duas chaves de 32 + 1 do bit que diz se
- * o criador venceu + pote + carimbo + dois nonces de 32 + hash de 32 + 2 do
- * comprimento + bump.
+ * SOMADO, não digitado. A primeira versão trazia 203 escrito à mão contra os
+ * 204 reais da conta, e o erro não estourava em lugar nenhum: o contrato usa a
+ * própria constante, então a liquidação funcionava — só a estimativa de aluguel
+ * mentia por 6960 lamports, e a consulta por `dataSize` não achava registro
+ * nenhum. Uma conta errada que não quebra nada é a que sobrevive mais tempo.
  */
-export const RECORD_LEN = 203
+export const RECORD_LEN =
+  8 + // discriminador da conta
+  16 + // match_id
+  32 * 2 + // vencedor, perdedor
+  1 + // o criador venceu?
+  8 + // pote
+  8 + // carimbo de tempo
+  32 * 2 + // nonces revelados
+  32 + // hash do replay
+  2 + // comprimento do replay
+  1 // bump
 
 /**
  * Depósito de isenção de aluguel, em lamports.
@@ -792,7 +804,26 @@ export const rentLamports = (bytes: number): bigint => BigInt((bytes + 128) * 69
  */
 export const recordRentLamports = (): bigint => rentLamports(RECORD_LEN)
 
-export const GAME_ACCOUNT_SIZE = 114
+/**
+ * Tamanho exato de uma conta `Game`.
+ *
+ * Serve de FILTRO no `getProgramAccounts`, e por isso errar aqui não dá erro
+ * nenhum: dá uma lista vazia. Ficou em 114 depois que o commit-reveal
+ * acrescentou dois compromissos de 32 bytes, e o efeito foi silencioso e grave
+ * — `fetchAllMatches` deixou de enxergar toda mesa criada desde então, o que
+ * cega o VARREDOR. Mesa com prazo vencido não voltava para ninguém.
+ *
+ * Somado campo a campo em vez de digitado, e conferido contra o Rust por teste.
+ */
+export const GAME_ACCOUNT_SIZE =
+  8 + // discriminador da conta
+  16 + // match_id
+  32 * 2 + // criador, oponente
+  8 + // aposta
+  1 + // estado
+  8 * 2 + // criada em, prazo
+  32 * 2 + // compromissos do commit-reveal
+  1 // bump
 
 /** Decodifica uma conta `Game` já lida. */
 export function decodeGame(data: Uint8Array): OnChainMatch {

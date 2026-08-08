@@ -19,8 +19,15 @@ import { PublicKey } from '@solana/web3.js'
  * é isso que responde "onde está o dinheiro".
  */
 
-/** Tamanho da conta `Game`, usado para filtrar só partidas. */
-const GAME_ACCOUNT_SIZE = 114
+/*
+ * Tamanho da conta `Game`, usado para filtrar só partidas.
+ *
+ * Importado, e não copiado. Esta era uma segunda cópia do número, e ela ficou
+ * 64 bytes atrasada junto com a primeira quando o commit-reveal entrou — com o
+ * agravante de que aqui o efeito é o painel de administração mostrar "nenhuma
+ * mesa" enquanto há dinheiro preso na chain.
+ */
+import { GAME_ACCOUNT_SIZE } from '@zinc-pool/chain-client'
 
 export type AdminMatch = {
   pda: string
