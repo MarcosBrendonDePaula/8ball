@@ -1,5 +1,7 @@
 import golden from '../../../../packages/engine-physics/src/fixtures.golden.json'
 import { FIXTURES, fixturesDigest, runFixture } from '@zinc-pool/engine-physics'
+import replayGolden from '../../../../packages/replay/src/battery.golden.json'
+import { REPLAY_FIXTURES, runReplayFixture } from '@zinc-pool/replay'
 
 /**
  * Verificação de determinismo no navegador.
@@ -34,6 +36,25 @@ function verificar(): { linhas: Linha[]; digest: string; digestOk: boolean; ms: 
     return { nome: fixture.name, esperado, obtido, ok: obtido === esperado }
   })
 
+  /*
+   * A segunda bateria: REPLAYS inteiros, não só a física.
+   *
+   * A de cima prova que a mesa evolui igual em toda plataforma. Não é a
+   * promessa — a promessa é que o replay aponta o mesmo VENCEDOR em qualquer
+   * lugar, e entre uma coisa e outra existe a camada de regras: falta, bola na
+   * mão, alternância de turno, fim de partida.
+   *
+   * A distância importa. A física é aritmética de ponto fixo, feita para não
+   * depender de `Math`. As regras decidem quem leva o pote, e uma divergência
+   * ali não mexe em nenhum hash de mesa.
+   */
+  for (const fixture of REPLAY_FIXTURES) {
+    const esperado =
+      (replayGolden.fixtures as Record<string, string>)[fixture.name] ?? '(sem referência)'
+    const obtido = runReplayFixture(fixture)
+    linhas.push({ nome: fixture.name, esperado, obtido, ok: obtido === esperado })
+  }
+
   const digest = fixturesDigest()
   return {
     linhas,
@@ -47,9 +68,7 @@ const { linhas, digest, digestOk, ms } = verificar()
 const falhas = linhas.filter((l) => !l.ok)
 const passou = falhas.length === 0 && digestOk
 
-// Exposto para inspeção automatizada — é assim que a verificação entra em CI
-// ou é lida por uma ferramenta de browser sem depender de ler a tela.
-;(window as unknown as Record<string, unknown>).__determinism = {
+const relatorio = {
   passou,
   digest,
   digestEsperado: golden.digest,
@@ -57,6 +76,32 @@ const passou = falhas.length === 0 && digestOk
   falhas: falhas.map((f) => ({ nome: f.nome, esperado: f.esperado, obtido: f.obtido })),
   ms,
   userAgent: navigator.userAgent,
+}
+
+// Exposto para inspeção automatizada — é assim que a verificação entra em CI
+// ou é lida por uma ferramenta de browser sem depender de ler a tela.
+;(window as unknown as Record<string, unknown>).__determinism = relatorio
+
+/*
+ * `?report=<url>` publica o resultado num endpoint.
+ *
+ * Ler `window.__determinism` exige um protocolo de depuração, e cada navegador
+ * tem o seu — o do Chrome não serve para o Firefox, e foi por isso que o
+ * Firefox ficou anos sem ser verificado apesar de a página existir desde o
+ * começo. Um POST funciona em qualquer um deles, headless inclusive.
+ *
+ * Opt-in por parâmetro: sem ele a página não fala com ninguém.
+ */
+const destino = new URLSearchParams(location.search).get('report')
+if (destino) {
+  void fetch(destino, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(relatorio),
+  }).catch(() => {
+    // Falhar em relatar não pode mascarar o resultado: a página continua
+    // mostrando na tela o que encontrou.
+  })
 }
 
 app.innerHTML = `
