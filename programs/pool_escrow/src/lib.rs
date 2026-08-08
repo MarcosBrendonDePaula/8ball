@@ -136,6 +136,28 @@ pub mod pool_escrow {
             EscrowError::InvalidTimeout
         );
 
+        /*
+         * O pote precisa cobrir o registro permanente — CONFERIDO AQUI, na
+         * entrada, e não só na liquidação.
+         *
+         * `settle_match` já recusava um pote pequeno demais com
+         * `PotTooSmallForRecord`. Mas recusar lá é tarde: o dinheiro dos dois
+         * jogadores já está preso, a partida já foi jogada, e a única saída
+         * vira o reembolso pelo prazo. O vencedor recebe a entrada de volta em
+         * vez do pote, por um limite que dava para conferir antes de aceitar o
+         * primeiro lamport.
+         *
+         * A trava não é hipotética: `min_stake` é ajustável pela autoridade, e
+         * nada a impedia de descer abaixo do aluguel. Hoje o mínimo é 0,01 SOL
+         * contra 0,00231 de aluguel — mas a segurança não deve depender de
+         * ninguém lembrar dessa conta ao mexer na configuração.
+         */
+        let aluguel = Rent::get()?.minimum_balance(MatchRecordV3::LEN);
+        require!(
+            stake.checked_mul(2).ok_or(EscrowError::MathOverflow)? > aluguel,
+            EscrowError::PotTooSmallForRecord
+        );
+
         let now = Clock::get()?.unix_timestamp;
         let game = &mut ctx.accounts.game;
         game.match_id = match_id;
@@ -417,6 +439,20 @@ pub mod pool_escrow {
         require!(
             config.min_stake > 0 && config.max_stake >= config.min_stake,
             EscrowError::InvalidStakeRange
+        );
+
+        // Um mínimo abaixo do aluguel do registro abriria uma faixa de apostas
+        // que o contrato ACEITA e depois não consegue liquidar. Melhor a
+        // autoridade descobrir aqui, ao configurar, do que dois jogadores
+        // descobrirem com o dinheiro preso.
+        let aluguel = Rent::get()?.minimum_balance(MatchRecordV3::LEN);
+        require!(
+            config
+                .min_stake
+                .checked_mul(2)
+                .ok_or(EscrowError::MathOverflow)?
+                > aluguel,
+            EscrowError::PotTooSmallForRecord
         );
 
         // Trocar o referee é a mudança mais perigosa que a autoridade faz:
